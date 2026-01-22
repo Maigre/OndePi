@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OndePi</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header>
+        <h1>OndePi Live Source</h1>
+        <p class="subtitle">Status, levels, and controls</p>
+      </header>
+
+      <section id="setup-panel" class="card setup hidden">
+        <h2>First-time setup</h2>
+        <p class="note">Fill the required fields below to start streaming.</p>
+        <ul id="setup-issues"></ul>
+      </section>
+
+      <section class="card status">
+        <h2>Status</h2>
+        <div class="grid">
+          <div>
+            <label>Streaming</label>
+            <span id="streaming">—</span>
+          </div>
+          <div>
+            <label>Started</label>
+            <span id="started">—</span>
+          </div>
+          <div>
+            <label>Retry count</label>
+            <span id="retry-count">0</span>
+          </div>
+          <div>
+            <label>Last retry</label>
+            <span id="last-retry">—</span>
+          </div>
+          <div>
+            <label>Last error</label>
+            <span id="error">—</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card controls">
+        <h2>Controls</h2>
+        <div class="buttons">
+          <button id="start">Start</button>
+          <button id="stop" class="secondary">Stop</button>
+        </div>
+        <div class="slider">
+          <label for="gain">Gain (dB)</label>
+          <input id="gain" type="range" min="-12" max="12" step="0.5" value="0" />
+          <span id="gain-value">0 dB</span>
+        </div>
+      </section>
+
+      <section class="card levels">
+        <h2>Input Levels</h2>
+        <div class="meter">
+          <div id="rms" class="bar"></div>
+        </div>
+        <div class="meter">
+          <div id="peak" class="bar peak"></div>
+        </div>
+        <p class="note">RMS and peak are normalized 0.0–1.0.</p>
+      </section>
+
+      <section class="card device">
+        <h2>Audio Device</h2>
+        <div class="grid">
+          <div>
+            <label>Status</label>
+            <span id="device-status">—</span>
+          </div>
+          <div>
+            <label>Last error</label>
+            <span id="device-error">—</span>
+          </div>
+          <div>
+            <label>Device</label>
+            <span id="device-name">—</span>
+          </div>
+          <div>
+            <label>Limiter</label>
+            <span id="device-limiter">—</span>
+          </div>
+        </div>
+        <div class="config-section">
+          <h3>Test input</h3>
+          <div class="buttons">
+            <button id="test-input">Capture 2s</button>
+          </div>
+          <div class="meter">
+            <div id="test-rms" class="bar"></div>
+          </div>
+          <div class="meter">
+            <div id="test-peak" class="bar peak"></div>
+          </div>
+          <p id="test-error" class="error"></p>
+        </div>
+        <div class="config-section">
+          <h3>Live preview</h3>
+          <div class="meter">
+            <div id="device-rms" class="bar"></div>
+          </div>
+          <div class="meter">
+            <div id="device-peak" class="bar peak"></div>
+          </div>
+        </div>
+        <div class="config-section">
+          <h3>Input selector</h3>
+          <div class="config-grid">
+            <div class="config-field">
+              <label for="device-select">Available inputs</label>
+              <select id="device-select"></select>
+            </div>
+            <div class="config-field">
+              <label>&nbsp;</label>
+              <button id="device-refresh" class="secondary">Refresh</button>
+            </div>
+          </div>
+          <p class="note">Selecting a device updates `input.alsa_device` in the config form.</p>
+        </div>
+      </section>
+
+      <section class="card config">
+        <h2>Config</h2>
+        <p class="note">Edit fields and save full config (PUT) or apply a partial patch (PATCH).</p>
+        <div id="config-form"></div>
+        <div class="buttons">
+          <button id="config-put">Save Full</button>
+          <button id="config-patch" class="secondary">Apply Patch</button>
+          <button id="config-reload" class="secondary">Reload</button>
+        </div>
+        <p id="config-validation" class="error"></p>
+        <p id="config-error" class="error"></p>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>
