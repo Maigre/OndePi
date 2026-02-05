@@ -18,6 +18,7 @@ from .config import (
     load_config,
     validation_errors,
 )
+from .serial_bridge import SerialBridge
 from .state import StreamState
 from .streamer import Streamer
 
@@ -67,6 +68,20 @@ def main() -> None:
         audio_engine=audio_engine,
         config_path=str(config_path),
     )
+
+    # Serial bridge to M5Stack
+    serial_bridge = SerialBridge(
+        config.serial,
+        state,
+        streamer,
+        audio_engine=audio_engine,
+    )
+    serial_bridge.start()
+
+    # Register serial shutdown
+    @api.app.on_event("shutdown")
+    def shutdown_serial() -> None:
+        serial_bridge.stop()
 
     # Filter out noisy /api/levels from access logs
     logging.getLogger("uvicorn.access").addFilter(EndpointFilter(["/api/levels"]))

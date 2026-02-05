@@ -107,6 +107,7 @@ class Streamer:
         if self._process is not None:
             return
         self._stop_requested = False
+        self._state.streaming_requested = True
         self._state.retry_count = 0
         self._state.last_retry_at = None
         self._state.last_exit_code = None
@@ -115,9 +116,12 @@ class Streamer:
         self._start_process(is_retry=False)
 
     def stop(self) -> None:
+        # Clear these first to prevent auto-restart race conditions
+        self._stop_requested = True
+        self._state.streaming_requested = False
+        
         if not self._process:
             return
-        self._stop_requested = True
         self._metadata_stop.set()
         self._cleanup_audio()
         self._process.process.terminate()

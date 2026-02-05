@@ -130,10 +130,13 @@ const Meters = {
 
 const GainControl = {
   _sendTimer: null,
+  _lastServerDb: null,
+  _userDragging: false,
   init() {
     const s = document.getElementById("gain-slider");
     if (s) {
       s.addEventListener("input", () => {
+        this._userDragging = true;
         const pct = parseInt(s.value);
         this.updateDisplay(pct);
         this.queueSend(pct);
@@ -141,7 +144,10 @@ const GainControl = {
       s.addEventListener("change", () => {
         const pct = parseInt(s.value);
         this.sendGain(pct);
+        this._userDragging = false;
       });
+      s.addEventListener("mouseup", () => { this._userDragging = false; });
+      s.addEventListener("touchend", () => { this._userDragging = false; });
     }
   },
   pctToDb(pct) {
@@ -149,6 +155,10 @@ const GainControl = {
       return -60;
     }
     return 20 * Math.log10(pct / 100);
+  },
+  dbToPct(db) {
+    if (db <= -60) return 0;
+    return Math.round(Math.pow(10, db / 20) * 100);
   },
   queueSend(pct) {
     if (this._sendTimer) {
@@ -158,6 +168,7 @@ const GainControl = {
   },
   sendGain(pct) {
     const gain_db = this.pctToDb(pct);
+    this._lastServerDb = gain_db;
     API.post("gain", { gain_db }).catch(() => Toast.show("Failed", "error"));
   },
   formatDb(pct) {
@@ -181,6 +192,16 @@ const GainControl = {
     const pct = Math.min(282, Math.max(0, Math.round(v * 100)));
     document.getElementById("gain-slider").value = pct;
     this.updateDisplay(pct);
+  },
+  setValueDb(db) {
+    // Don't update while user is dragging the slider
+    if (this._userDragging) return;
+    // Don't update if we just sent this value
+    if (this._lastServerDb !== null && Math.abs(db - this._lastServerDb) < 0.1) return;
+    const pct = this.dbToPct(db);
+    document.getElementById("gain-slider").value = pct;
+    this.updateDisplay(pct);
+    this._lastServerDb = db;
   }
 };
 
@@ -284,10 +305,15 @@ const DeviceSelector = {
   async select(deviceId) {
     try {
       const id = parseInt(deviceId);
-      await API.patch("config", { input: { alsa_device: id } });
+      const device = (AppState.devices || []).find(d => String(d.id) === String(id));
+      const channels = device && device.channels === 1
+        ? 1
+        : (AppState.config?.input?.channels || 2);
+      await API.patch("config", { input: { alsa_device: id, channels } });
       if (AppState.config) {
         if (!AppState.config.input) AppState.config.input = {};
         AppState.config.input.alsa_device = id;
+        AppState.config.input.channels = channels;
       }
       Toast.show("Device applied", "success");
     } catch (e) { Toast.show("Failed to apply device", "error"); }
@@ -401,6 +427,11 @@ const ConfigForm = {
       this.populate(data);
       this.checkSetup(data);
       this._ready = true;
+      // Also fetch status for runtime values like gain
+      const status = await API.get("status");
+      if (status.state && typeof status.state.gain_db === "number") {
+        GainControl.setValueDb(status.state.gain_db);
+      }
     } catch (e) { console.error(e); }
   },
   populate(cfg) {
@@ -414,8 +445,7 @@ const ConfigForm = {
     document.getElementById("cfg-icy").checked = stream.icy ?? true;
     document.getElementById("cfg-format").value = stream.format || "mp3";
     document.getElementById("cfg-bitrate").value = stream.bitrate_kbps || 256;
-  const audio = cfg.audio || {};
-  GainControl.setValue(audio.gain || 1.0);
+  // Gain is now loaded from status API, not config
   const input = cfg.input || {};
   LimiterControl.setValue(input.limiter_enabled || false);
   },
@@ -573,6 +603,33 @@ const StatusUpdater = {
       if (s.device && typeof s.device.monitor_enabled === "boolean") {
         MonitorControl.setValue(s.device.monitor_enabled);
       }
+      if (s.device) {
+        const meters = document.querySelector(".meters");
+        if (meters) {
+          meters.classList.toggle("disabled", s.device.status !== "connected");
+        }
+        const inputStatus = document.getElementById("input-status");
+        const inputHint = document.getElementById("input-hint");
+        if (inputStatus) {
+          inputStatus.classList.remove("ok", "warn", "err");
+          const status = s.device.status || "unknown";
+          inputStatus.textContent = "Input: " + status;
+          if (status === "connected") inputStatus.classList.add("ok");
+          else if (status === "reconnecting") inputStatus.classList.add("warn");
+          else if (status === "error") inputStatus.classList.add("err");
+        }
+        if (inputHint) {
+          if (s.device.status !== "connected" && s.device.last_error) {
+            inputHint.textContent = s.device.last_error;
+          } else if (s.device.sample_rate_mismatch && s.device.device_default_rate) {
+            inputHint.textContent = "Device rate " + Math.round(s.device.device_default_rate) + " Hz differs from configured " + s.device.sample_rate + " Hz";
+          } else if (s.device.last_stream_status) {
+            inputHint.textContent = s.device.last_stream_status;
+          } else {
+            inputHint.textContent = "";
+          }
+        }
+      }
       if (state.started_at) {
         const started = this.parseStartedAt(state.started_at);
         const now = new Date();
@@ -585,7 +642,8 @@ const StatusUpdater = {
       } else {
         document.getElementById("stream-duration").textContent = "--:--:--";
       }
-      document.getElementById("retry-count").textContent = state.retry_count || 0;
+    document.getElementById("retry-count").textContent = state.retry_count || 0;
+    document.getElementById("dropout-count").textContent = s.device?.overflow_count || 0;
       this.setConnection(true);
       if (state.last_error) {
         if (!this.errorDismissed || state.last_error !== this.lastError) {
@@ -648,6 +706,10 @@ const StatusUpdater = {
       );
       LimiterControl.setActive(l.limiter_active || false);
       InputClipIndicator.setActive(l.input_clip || false);
+      // Sync gain from server (for M5Stack or other changes)
+      if (typeof l.gain_db === "number") {
+        GainControl.setValueDb(l.gain_db);
+      }
     } catch (e) { /* ignore meter errors */ }
   },
   setConnection(ok) {

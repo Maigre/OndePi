@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException
+import threading
+import time
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -27,6 +29,8 @@ class ApiService:
         self._streamer = streamer
         self._audio_engine = audio_engine
         self._config_path = config_path
+        self._audio_monitor_stop = False
+        self._audio_monitor_thread = None
         self.app = FastAPI(title="OndePi")
         self._register_routes()
 
@@ -65,6 +69,7 @@ class ApiService:
                 "peak_right": self._state.levels.peak_right,
                 "limiter_active": limiter_active,
                 "input_clip": self._state.input_clip,
+                "gain_db": self._state.gain_db,
             }
 
         @app.get("/api/devices")
@@ -194,15 +199,46 @@ class ApiService:
             if self._audio_engine:
                 self._audio_engine.start()
                 self._audio_engine.set_monitor(True)
+            if not self._audio_monitor_thread:
+                self._audio_monitor_stop = False
+                self._audio_monitor_thread = threading.Thread(
+                    target=self._monitor_audio_device,
+                    daemon=True,
+                )
+                self._audio_monitor_thread.start()
 
         @app.on_event("shutdown")
         def shutdown() -> None:
+            self._audio_monitor_stop = True
+            if self._audio_monitor_thread:
+                self._audio_monitor_thread.join(timeout=2.0)
             if self._audio_engine:
                 self._audio_engine.stop()
 
         @app.get("/", response_class=HTMLResponse)
         def root() -> HTMLResponse:
             return HTMLResponse("", status_code=307, headers={"Location": "/index.html"})
+
+    def _monitor_audio_device(self) -> None:
+        while not self._audio_monitor_stop:
+            if not self._audio_engine:
+                time.sleep(1)
+                continue
+            device_status = self._audio_engine.device_status()
+            connected = device_status.get("status") == "connected"
+            if not connected and self._state.streaming:
+                self._state.last_error = "Audio device disconnected, streaming paused"
+                self._streamer.stop()
+            # Only auto-restart if explicitly requested AND not recently stopped
+            if (connected and 
+                self._state.streaming_requested and 
+                not self._state.streaming and
+                not self._streamer._stop_requested):
+                try:
+                    self._streamer.start()
+                except Exception as exc:
+                    self._state.last_error = str(exc)
+            time.sleep(1)
 
 
 def _merge_dicts(base: dict, patch: dict) -> dict:

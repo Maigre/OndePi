@@ -97,6 +97,9 @@ class AudioEngine:
         self._thread: Optional[Thread] = None
         self._device_status = "idle"
         self._last_device_error: Optional[str] = None
+        self._overflow_count = 0
+        self._last_stream_status = None
+        self._stream_channels = self._input_cfg.channels
 
     def start(self) -> None:
         if self._running.is_set():
@@ -185,13 +188,23 @@ class AudioEngine:
     def _callback(self, indata, frames, time, status) -> None:  # noqa: ANN001
         if status:
             self._state.last_error = str(status)
+            self._last_stream_status = str(status)
+            if getattr(status, "input_overflow", False):
+                self._overflow_count += 1
         if indata.size > 0:
             input_peak = float(np.max(np.abs(indata)))
             self._state.input_clip = input_peak >= 0.99
         else:
             self._state.input_clip = False
+        working = indata
+        if (
+            working.ndim == 2
+            and working.shape[1] == 1
+            and self._input_cfg.channels == 2
+        ):
+            working = np.repeat(working, 2, axis=1)
         self._gain.gain_db = self._state.gain_db
-        gained = self._gain.apply(indata)
+        gained = self._gain.apply(working)
         clipped = self._clipper.apply(gained)
         levels = self._meter.compute_levels(clipped)
         self._state.levels = levels
@@ -215,9 +228,27 @@ class AudioEngine:
         while self._running.is_set():
             stream = None
             try:
+                channels = self._input_cfg.channels
+                if self._input_cfg.alsa_device is not None:
+                    try:
+                        dev = sd.query_devices(self._input_cfg.alsa_device)
+                        max_ch = int(dev.get("max_input_channels") or 0)
+                        if max_ch <= 0:
+                            raise ValueError("Device has no input channels")
+                        if channels > max_ch:
+                            channels = max_ch
+                            self._last_device_error = "Input is mono, using 1 channel"
+                    except Exception as exc:
+                        self._device_status = "reconnecting"
+                        self._last_device_error = str(exc)
+                        self._state.levels = LevelState()
+                        self._state.input_clip = False
+                        time.sleep(2)
+                        continue
+                self._stream_channels = channels
                 stream = sd.InputStream(
                     samplerate=self._input_cfg.sample_rate,
-                    channels=self._input_cfg.channels,
+                    channels=channels,
                     dtype="float32",
                     device=self._input_cfg.alsa_device or None,
                     callback=self._callback,
@@ -235,6 +266,8 @@ class AudioEngine:
                 self._state.last_error = f"audio device error: {exc}"
                 self._device_status = "error"
                 self._last_device_error = str(exc)
+                self._state.levels = LevelState()
+                self._state.input_clip = False
             finally:
                 with self._stream_lock:
                     self._stream = None
@@ -253,12 +286,28 @@ class AudioEngine:
         self._device_status = "disconnected"
 
     def device_status(self) -> dict:
+        device_default_rate = None
+        sample_rate_mismatch = False
+        try:
+            if self._input_cfg.alsa_device is not None:
+                dev = sd.query_devices(self._input_cfg.alsa_device)
+                device_default_rate = dev.get("default_samplerate")
+                if device_default_rate:
+                    sample_rate_mismatch = int(device_default_rate) != int(self._input_cfg.sample_rate)
+        except Exception:
+            device_default_rate = None
+            sample_rate_mismatch = False
         return {
             "status": self._device_status,
             "last_error": self._last_device_error,
+            "last_stream_status": self._last_stream_status,
+            "overflow_count": self._overflow_count,
+            "device_default_rate": device_default_rate,
+            "sample_rate_mismatch": sample_rate_mismatch,
             "device": self._input_cfg.alsa_device,
             "sample_rate": self._input_cfg.sample_rate,
             "channels": self._input_cfg.channels,
+            "stream_channels": self._stream_channels,
             "limiter_enabled": self._clipper.enabled,
             "limiter_drive": self._clipper.drive,
             "monitor_enabled": self._monitor_enabled,
