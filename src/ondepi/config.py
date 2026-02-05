@@ -27,7 +27,7 @@ class GeneralConfig:
 
 @dataclass
 class InputConfig:
-    alsa_device: str = "hw:0,0"
+    alsa_device: str | int | None = None
     sample_rate: int = 44100
     bits_per_sample: int = 16
     channels: int = 2
@@ -43,6 +43,7 @@ class StreamConfig:
     server: str = ""
     port: int = 8000
     mount: str = ""
+    tls: bool = False
     username: str = "source"
     password: str = ""
     icy: bool = True

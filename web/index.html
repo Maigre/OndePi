@@ -1,145 +1,76 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>OndePi</title>
-    <link rel="stylesheet" href="/style.css" />
-  </head>
-  <body>
-    <main class="container">
-      <header>
-        <h1>OndePi Live Source</h1>
-        <p class="subtitle">Status, levels, and controls</p>
-      </header>
-
-      <section id="setup-panel" class="card setup hidden">
-        <h2>First-time setup</h2>
-        <p class="note">Fill the required fields below to start streaming.</p>
-        <ul id="setup-issues"></ul>
-      </section>
-
-      <section class="card status">
-        <h2>Status</h2>
-        <div class="grid">
-          <div>
-            <label>Streaming</label>
-            <span id="streaming">—</span>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OndePi</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="setup-overlay" class="overlay hidden">
+    <div class="overlay-content">
+      <h2>Setup Required</h2>
+      <p>Configure the following:</p>
+      <ul id="setup-issues"></ul>
+      <button class="btn btn-primary" onclick="document.getElementById('setup-overlay').classList.add('hidden')">Configure</button>
+    </div>
+  </div>
+  <div id="disconnect-overlay" class="overlay hidden">
+    <div class="overlay-content">
+      <h2>Disconnected</h2>
+      <p>Lost connection to OndePi device. Reconnecting...</p>
+      <div class="spinner"></div>
+    </div>
+  </div>
+  <div class="app">
+    <header class="header">
+      <h1>OndePi</h1>
+    </header>
+    <main class="main">
+      <div class="row row-top">
+        <div class="card card-status">
+          <div class="status-header">
+            <div class="status-ind"><span class="dot lg" id="stream-status-dot"></span><span id="stream-status-text">Stopped</span></div>
+            <span class="save-ind hidden" id="status-save-ind">Saved</span>
           </div>
-          <div>
-            <label>Started</label>
-            <span id="started">—</span>
-          </div>
-          <div>
-            <label>Retry count</label>
-            <span id="retry-count">0</span>
-          </div>
-          <div>
-            <label>Last retry</label>
-            <span id="last-retry">—</span>
-          </div>
-          <div>
-            <label>Last error</label>
-            <span id="error">—</span>
-          </div>
+          <div class="stats"><div><span>Duration</span><span id="stream-duration">--:--:--</span></div><div><span>Retries</span><span id="retry-count">0</span></div></div>
+          <div class="divider"></div>
+          <h4>Server</h4>
+          <div class="form-row"><input type="text" id="cfg-host" class="inp" placeholder="URL"><input type="number" id="cfg-port" class="inp inp-sm" placeholder="Port"><input type="text" id="cfg-mount" class="inp inp-md" placeholder="Mount"><label class="chk"><input type="checkbox" id="cfg-tls">SSL</label></div>
+          <div class="form-row"><input type="text" id="cfg-user" class="inp" placeholder="User"><input type="password" id="cfg-password" class="inp" placeholder="Password"><select id="cfg-format" class="inp inp-sm"><option value="mp3">MP3</option><option value="aac">AAC</option><option value="opus">Opus</option></select><select id="cfg-bitrate" class="inp inp-sm"><option value="128">128k</option><option value="192">192k</option><option value="256" selected>256k</option><option value="320">320k</option></select><label class="chk"><input type="checkbox" id="cfg-icy" checked>ICY</label></div>
+          <button id="btn-connect" class="btn btn-success btn-sm btn-block">Connect</button>
         </div>
-      </section>
-
-      <section class="card controls">
-        <h2>Controls</h2>
-        <div class="buttons">
-          <button id="start">Start</button>
-          <button id="stop" class="secondary">Stop</button>
-        </div>
-        <div class="slider">
-          <label for="gain">Gain (dB)</label>
-          <input id="gain" type="range" min="-12" max="12" step="0.5" value="0" />
-          <span id="gain-value">0 dB</span>
-        </div>
-      </section>
-
-      <section class="card levels">
-        <h2>Input Levels</h2>
-        <div class="meter">
-          <div id="rms" class="bar"></div>
-        </div>
-        <div class="meter">
-          <div id="peak" class="bar peak"></div>
-        </div>
-        <p class="note">RMS and peak are normalized 0.0–1.0.</p>
-      </section>
-
-      <section class="card device">
-        <h2>Audio Device</h2>
-        <div class="grid">
-          <div>
-            <label>Status</label>
-            <span id="device-status">—</span>
+        <div class="card card-audio">
+          <div class="audio-header">
+            <h4>Audio</h4>
+            <span class="clip-ind hidden" id="clip-indicator">INPUT CLIP</span>
           </div>
-          <div>
-            <label>Last error</label>
-            <span id="device-error">—</span>
-          </div>
-          <div>
-            <label>Device</label>
-            <span id="device-name">—</span>
-          </div>
-          <div>
-            <label>Limiter</label>
-            <span id="device-limiter">—</span>
-          </div>
-        </div>
-        <div class="config-section">
-          <h3>Test input</h3>
-          <div class="buttons">
-            <button id="test-input">Capture 2s</button>
-          </div>
-          <div class="meter">
-            <div id="test-rms" class="bar"></div>
-          </div>
-          <div class="meter">
-            <div id="test-peak" class="bar peak"></div>
-          </div>
-          <p id="test-error" class="error"></p>
-        </div>
-        <div class="config-section">
-          <h3>Live preview</h3>
-          <div class="meter">
-            <div id="device-rms" class="bar"></div>
-          </div>
-          <div class="meter">
-            <div id="device-peak" class="bar peak"></div>
-          </div>
-        </div>
-        <div class="config-section">
-          <h3>Input selector</h3>
-          <div class="config-grid">
-            <div class="config-field">
-              <label for="device-select">Available inputs</label>
-              <select id="device-select"></select>
+          <div class="meters-wrap">
+            <div class="meters">
+              <div class="meter-row"><span>L</span><div class="meter"><div class="meter-bg"></div><div class="meter-mask" id="meter-left"></div><div class="meter-peak" id="peak-left"></div></div><span class="db" id="db-left">-inf</span></div>
+              <div class="meter-row"><span>R</span><div class="meter"><div class="meter-bg"></div><div class="meter-mask" id="meter-right"></div><div class="meter-peak" id="peak-right"></div></div><span class="db" id="db-right">-inf</span></div>
             </div>
-            <div class="config-field">
-              <label>&nbsp;</label>
-              <button id="device-refresh" class="secondary">Refresh</button>
-            </div>
+            <button class="monitor-btn" id="btn-monitor" title="Monitor audio">🎧</button>
           </div>
-          <p class="note">Selecting a device updates `input.alsa_device` in the config form.</p>
+          <div class="divider"></div>
+          <div class="dev-row"><select id="device-select" class="inp dev-sel"><option>Loading...</option></select><button id="btn-refresh-devices" class="btn btn-secondary btn-sm">Refresh</button></div>
+          <div class="divider"></div>
+          <div class="audio-ctrl">
+            <div class="gain-row"><label>Gain</label><div class="gain-wrap"><input type="range" id="gain-slider" min="0" max="282" value="100"></div><span id="gain-value">0.0 dB</span></div>
+            <div class="limiter-row"><label class="chk"><input type="checkbox" id="limiter-toggle">Limiter</label><span class="limiter-ind hidden" id="limiter-indicator">LIMITING</span></div>
+          </div>
+          <div class="err hidden" id="error-card"><strong>Error:</strong> <span id="error-message"></span></div>
         </div>
-      </section>
-
-      <section class="card config">
-        <h2>Config</h2>
-        <p class="note">Edit fields and save full config (PUT) or apply a partial patch (PATCH).</p>
-        <div id="config-form"></div>
-        <div class="buttons">
-          <button id="config-put">Save Full</button>
-          <button id="config-patch" class="secondary">Apply Patch</button>
-          <button id="config-reload" class="secondary">Reload</button>
+      </div>
+      <div class="row row-logs">
+        <div class="card card-logs">
+          <div class="logs-hdr"><h4>Logs</h4><button id="btn-clear-logs" class="btn btn-secondary btn-xs">Clear</button></div>
+          <div id="log-container" class="log-box"></div>
         </div>
-        <p id="config-validation" class="error"></p>
-        <p id="config-error" class="error"></p>
-      </section>
+      </div>
     </main>
-    <script src="/app.js"></script>
-  </body>
+  </div>
+  <div id="toast-container"></div>
+  <script src="app.js"></script>
+</body>
 </html>

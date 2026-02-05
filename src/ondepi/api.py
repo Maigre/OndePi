@@ -47,6 +47,26 @@ class ApiService:
                 },
             }
 
+        @app.get("/api/levels")
+        def levels() -> dict:
+            """Lightweight endpoint for fast meter updates."""
+            limiter_active = False
+            if self._audio_engine:
+                # Limiter is "active" if enabled and peak is high
+                max_peak = max(self._state.levels.peak_left, self._state.levels.peak_right)
+                limiter_active = (
+                    self._audio_engine._clipper.enabled
+                    and max_peak > 0.7
+                )
+            return {
+                "rms_left": self._state.levels.rms_left,
+                "rms_right": self._state.levels.rms_right,
+                "peak_left": self._state.levels.peak_left,
+                "peak_right": self._state.levels.peak_right,
+                "limiter_active": limiter_active,
+                "input_clip": self._state.input_clip,
+            }
+
         @app.get("/api/devices")
         def list_devices() -> dict:
             devices = []
@@ -60,27 +80,41 @@ class ApiService:
                             "id": idx,
                             "name": dev["name"],
                             "channels": dev["max_input_channels"],
-                            "alsa": f"hw:{idx},0",
                         }
                     )
             return {"devices": devices, "current": current_device}
 
         @app.post("/api/test-input")
         def test_input() -> dict:
+            # Can't test while streaming - device is in use
+            if self._streamer.status().get("running"):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Cannot test input while streaming. Stop the stream first.",
+                )
             try:
                 cfg = self._config.input
-                frames = int(cfg.sample_rate * 2)
+                device = cfg.alsa_device
+                # Ensure device is an integer index or None
+                if isinstance(device, str):
+                    device = None
+                frames = int(cfg.sample_rate * 0.5)  # 0.5 second test
                 recording = sd.rec(
                     frames,
                     samplerate=cfg.sample_rate,
                     channels=cfg.channels,
                     dtype="float32",
-                    device=cfg.alsa_device or None,
+                    device=device,
                 )
                 sd.wait()
                 rms = float(np.sqrt(np.mean(np.square(recording))))
                 peak = float(np.max(np.abs(recording)))
                 return {"rms": rms, "peak": peak}
+            except sd.PortAudioError as exc:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Audio device error: {exc}. Try a different device.",
+                ) from exc
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -145,12 +179,21 @@ class ApiService:
             self._state.gain_db = float(gain_db)
             return {"ok": True, "gain_db": self._state.gain_db}
 
+        @app.post("/api/monitor")
+        def set_monitor(payload: dict) -> dict:
+            enabled = payload.get("enabled", False)
+            actual = False
+            if self._audio_engine:
+                actual = self._audio_engine.set_monitor(enabled)
+            return {"ok": True, "enabled": actual}
+
         app.mount("/", StaticFiles(directory="web", html=True), name="web")
 
         @app.on_event("startup")
         def startup() -> None:
             if self._audio_engine:
                 self._audio_engine.start()
+                self._audio_engine.set_monitor(True)
 
         @app.on_event("shutdown")
         def shutdown() -> None:

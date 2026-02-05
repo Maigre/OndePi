@@ -7,8 +7,10 @@ def test_audio_meter_levels():
     meter = AudioMeter()
     data = np.array([0, 16384, -16384], dtype=np.int16)
     levels = meter.compute_levels(data)
-    assert 0 < levels.rms <= 1
-    assert 0 < levels.peak <= 1
+    assert 0 < levels.rms_left <= 1
+    assert 0 < levels.peak_left <= 1
+    assert 0 < levels.rms_right <= 1
+    assert 0 < levels.peak_right <= 1
 
 
 def test_gain_controller():

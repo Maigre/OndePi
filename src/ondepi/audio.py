@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from threading import Event, Lock, Thread
+import time
 from typing import Callable, Optional
 
 import numpy as np
@@ -13,7 +14,7 @@ from .state import LevelState, StreamState
 
 @dataclass
 class AudioMeter:
-    """Compute RMS/peak from numpy audio buffers."""
+    """Compute RMS/peak from numpy audio buffers per channel."""
 
     def compute_levels(self, data: np.ndarray) -> LevelState:
         if data.size == 0:
@@ -24,9 +25,28 @@ class AudioMeter:
             normalized = data.astype(np.float32) / max_val
         else:
             normalized = data.astype(np.float32)
-        rms = float(np.sqrt(np.mean(np.square(normalized))))
-        peak = float(np.max(np.abs(normalized)))
-        return LevelState(rms=rms, peak=peak)
+        
+        # Handle stereo (2D array with shape [frames, channels]) or mono
+        if normalized.ndim == 2 and normalized.shape[1] >= 2:
+            left = normalized[:, 0]
+            right = normalized[:, 1]
+        else:
+            # Mono - use same values for both channels
+            flat = normalized.flatten()
+            left = flat
+            right = flat
+        
+        rms_left = float(np.sqrt(np.mean(np.square(left))))
+        rms_right = float(np.sqrt(np.mean(np.square(right))))
+        peak_left = float(np.max(np.abs(left)))
+        peak_right = float(np.max(np.abs(right)))
+        
+        return LevelState(
+            rms_left=rms_left,
+            rms_right=rms_right,
+            peak_left=peak_left,
+            peak_right=peak_right,
+        )
 
 
 @dataclass
@@ -68,8 +88,11 @@ class AudioEngine:
         self._gain = GainController()
         self._clipper = SoftClipper()
         self._stream: Optional[sd.InputStream] = None
+        self._output_stream: Optional[sd.OutputStream] = None
+        self._monitor_enabled = False
         self._consumers: list[AudioConsumer] = []
         self._lock = Lock()
+        self._stream_lock = Lock()
         self._running = Event()
         self._thread: Optional[Thread] = None
         self._device_status = "idle"
@@ -88,10 +111,19 @@ class AudioEngine:
         if not self._running.is_set():
             return
         self._running.clear()
-        if self._stream:
-            self._stream.stop()
-            self._stream.close()
-            self._stream = None
+        # Stop monitor output
+        self.set_monitor(False)
+        # Signal the stream to stop - _run_loop will handle cleanup
+        with self._stream_lock:
+            if self._stream:
+                try:
+                    self._stream.stop()
+                except Exception:
+                    pass
+        # Wait for the thread to finish
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=3.0)
+        self._thread = None
 
     def add_consumer(self, consumer: AudioConsumer) -> None:
         with self._lock:
@@ -103,21 +135,74 @@ class AudioEngine:
                 self._consumers.remove(consumer)
 
     def update_input(self, input_cfg: InputConfig) -> None:
+        # Check if we need to restart (device or sample rate changed)
+        needs_restart = (
+            input_cfg.alsa_device != self._input_cfg.alsa_device
+            or input_cfg.sample_rate != self._input_cfg.sample_rate
+            or input_cfg.channels != self._input_cfg.channels
+        )
+        was_monitoring = self._monitor_enabled
+        was_running = self._running.is_set()
+        if needs_restart and was_running:
+            self.stop()
+        if was_monitoring and not was_running:
+            self.set_monitor(False)
         self._input_cfg = input_cfg
         self._clipper.enabled = input_cfg.limiter_enabled
         self._clipper.drive = input_cfg.limiter_drive
-        if self._stream:
-            self.stop()
+        
+        if needs_restart and was_running:
             self.start()
+        if was_monitoring:
+            self.set_monitor(True)
+
+    def set_monitor(self, enabled: bool) -> bool:
+        """Enable/disable audio monitoring (send processed audio to same device output)."""
+        if enabled and not self._monitor_enabled:
+            try:
+                self._output_stream = sd.OutputStream(
+                    samplerate=self._input_cfg.sample_rate,
+                    channels=self._input_cfg.channels,
+                    dtype="float32",
+                    device=self._input_cfg.alsa_device or None,
+                )
+                self._output_stream.start()
+                self._monitor_enabled = True
+            except Exception as exc:
+                self._state.last_error = f"Monitor error: {exc}"
+                self._monitor_enabled = False
+        elif not enabled and self._monitor_enabled:
+            self._monitor_enabled = False
+            if self._output_stream:
+                try:
+                    self._output_stream.stop()
+                    self._output_stream.close()
+                except Exception:
+                    pass
+                self._output_stream = None
+        return self._monitor_enabled
 
     def _callback(self, indata, frames, time, status) -> None:  # noqa: ANN001
         if status:
             self._state.last_error = str(status)
+        if indata.size > 0:
+            input_peak = float(np.max(np.abs(indata)))
+            self._state.input_clip = input_peak >= 0.99
+        else:
+            self._state.input_clip = False
         self._gain.gain_db = self._state.gain_db
         gained = self._gain.apply(indata)
         clipped = self._clipper.apply(gained)
         levels = self._meter.compute_levels(clipped)
         self._state.levels = levels
+        
+        # Send to monitor output if enabled
+        if self._monitor_enabled and self._output_stream:
+            try:
+                self._output_stream.write(clipped)
+            except Exception:
+                pass  # Ignore output errors
+        
         with self._lock:
             consumers = list(self._consumers)
         for consumer in consumers:
@@ -128,8 +213,9 @@ class AudioEngine:
 
     def _run_loop(self) -> None:
         while self._running.is_set():
+            stream = None
             try:
-                self._stream = sd.InputStream(
+                stream = sd.InputStream(
                     samplerate=self._input_cfg.sample_rate,
                     channels=self._input_cfg.channels,
                     dtype="float32",
@@ -137,26 +223,30 @@ class AudioEngine:
                     callback=self._callback,
                     finished_callback=self._on_finished,
                 )
-                self._stream.start()
+                with self._stream_lock:
+                    self._stream = stream
+                stream.start()
                 self._state.last_error = None
                 self._device_status = "connected"
                 self._last_device_error = None
-                while self._running.is_set() and self._stream and self._stream.active:
-                    self._running.wait(0.5)
+                while self._running.is_set() and stream.active:
+                    time.sleep(0.5)
             except Exception as exc:  # pragma: no cover - runtime only
                 self._state.last_error = f"audio device error: {exc}"
                 self._device_status = "error"
                 self._last_device_error = str(exc)
             finally:
-                if self._stream:
+                with self._stream_lock:
+                    self._stream = None
+                if stream:
                     try:
-                        self._stream.close()
+                        stream.stop()
+                        stream.close()
                     except Exception:
                         pass
-                    self._stream = None
             if self._running.is_set():
                 self._device_status = "reconnecting"
-                self._running.wait(2)
+                time.sleep(2)
 
     def _on_finished(self) -> None:
         self._state.last_error = "audio stream stopped"
@@ -171,4 +261,5 @@ class AudioEngine:
             "channels": self._input_cfg.channels,
             "limiter_enabled": self._clipper.enabled,
             "limiter_drive": self._clipper.drive,
+            "monitor_enabled": self._monitor_enabled,
         }

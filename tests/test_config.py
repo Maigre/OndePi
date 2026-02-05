@@ -61,7 +61,8 @@ access_token = ""
 def test_state_as_dict():
     state = StreamState()
     payload = state.as_dict()
-    assert payload["levels"]["rms"] == 0.0
+    assert payload["levels"]["rms_left"] == 0.0
+    assert payload["levels"]["rms_right"] == 0.0
     assert payload["streaming"] is False
 
 

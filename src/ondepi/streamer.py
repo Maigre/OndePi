@@ -38,6 +38,7 @@ class Streamer:
         self._stop_requested = False
         self._metadata_thread: Optional[threading.Thread] = None
         self._metadata_stop = threading.Event()
+        self._last_stderr = None
 
     def build_ffmpeg_command(self) -> List[str]:
         stream = self._config.stream
@@ -109,6 +110,7 @@ class Streamer:
         self._state.retry_count = 0
         self._state.last_retry_at = None
         self._state.last_exit_code = None
+        self._last_stderr = None
         self._metadata_stop.clear()
         self._start_process(is_retry=False)
 
@@ -120,17 +122,27 @@ class Streamer:
         self._cleanup_audio()
         self._process.process.terminate()
         self._process.process.wait(timeout=5)
+        self._state.last_exit_code = self._process.process.returncode
         self._process = None
         self._state.streaming = False
+        self._state.started_at = None
         if self._azuracast:
             self._azuracast.update_streamer_metadata(self._config.metadata)
 
     def status(self) -> dict:
+        output_url = None
+        if self._config.stream.server and self._config.stream.mount:
+            output_url = _masked_output_url(self._config.stream)
         return {
             "running": self._process is not None,
             "command": self._process.command if self._process else None,
             "input": "audio-engine" if self._audio_engine else "alsa",
+            "input_device": None if self._audio_engine else self._config.input.alsa_device,
+            "output_url": output_url,
             "retry_count": self._state.retry_count,
+            "last_exit_code": self._state.last_exit_code,
+            "last_error": self._state.last_error,
+            "last_stderr": self._last_stderr,
         }
 
     def update_config(self, config: AppConfig) -> None:
@@ -202,10 +214,12 @@ class Streamer:
                 stderr = process.stderr.read().decode("utf-8", errors="ignore").strip()
             except Exception:
                 stderr = ""
+        self._last_stderr = stderr or None
         self._cleanup_audio()
         self._metadata_stop.set()
         self._process = None
         self._state.streaming = False
+        self._state.started_at = None
         self._state.last_exit_code = exit_code
 
         if self._stop_requested:
@@ -275,7 +289,13 @@ def _content_type_for_format(fmt: str) -> str:
         return "audio/aac"
     if value == "opus":
         return "audio/ogg"
-    return "application/octet-stream"
+    return value
+
+
+def _masked_output_url(stream) -> str:
+    username = quote(stream.username)
+    mount = stream.mount.lstrip("/")
+    return f"icecast://{username}:******@{stream.server}:{stream.port}/{mount}"
 
 
 def _retry_delay(attempt: int, initial: int, maximum: int) -> int:
