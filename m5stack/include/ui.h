@@ -139,19 +139,28 @@ private:
         M5.Display.drawString("OndePi", 10, HEADER_Y + HEADER_HEIGHT / 2);
 
         String statusText;
-        uint16_t statusColor = COLOR_TEXT;
         if (state.pendingAction == PENDING_START) {
             statusText = "STARTING";
-            statusColor = COLOR_METER_MID;
         } else if (state.pendingAction == PENDING_STOP) {
             statusText = "STOPPING";
-            statusColor = COLOR_METER_MID;
         } else {
             statusText = state.status.streaming ? "STREAMING" : "STOPPED";
         }
+        uint16_t dotColor = COLOR_STOPPED;
+        if (state.pendingAction != PENDING_NONE) {
+            dotColor = COLOR_METER_MID;
+        } else if (state.status.streaming) {
+            dotColor = COLOR_STREAMING;
+        }
+
         M5.Display.setTextDatum(MR_DATUM);  // Middle-Right
-        M5.Display.setTextColor(statusColor, COLOR_HEADER_BG);
-        M5.Display.drawString(statusText, SCREEN_WIDTH - 10, HEADER_Y + HEADER_HEIGHT / 2);
+        M5.Display.setTextColor(COLOR_TEXT, COLOR_HEADER_BG);
+        int textWidth = M5.Display.textWidth(statusText);
+        int textRight = SCREEN_WIDTH - 10;
+        int dotX = textRight - textWidth - 12;
+        int dotY = HEADER_Y + HEADER_HEIGHT / 2;
+        M5.Display.fillCircle(dotX, dotY, 5, dotColor);
+        M5.Display.drawString(statusText, textRight, HEADER_Y + HEADER_HEIGHT / 2);
     }
     
     // -------------------------------------------------------------------------
@@ -162,19 +171,8 @@ private:
         // Clear status area
         M5.Display.fillRect(0, STATUS_Y, SCREEN_WIDTH, STATUS_HEIGHT, COLOR_BG);
         
-        // Status dot
-        uint16_t dotColor = COLOR_STOPPED;
-        if (state.pendingAction != PENDING_NONE) {
-            dotColor = COLOR_METER_MID;
-        } else if (state.status.streaming) {
-            dotColor = COLOR_STREAMING;
-        }
-        
-        int dotX = 15;
-        int dotY = STATUS_Y + STATUS_HEIGHT / 2;
-        M5.Display.fillCircle(dotX, dotY, 6, dotColor);
-        
         // Duration or error (right aligned)
+        int dotY = STATUS_Y + STATUS_HEIGHT / 2;
         M5.Display.setTextDatum(MR_DATUM);
         if (!state.status.error.isEmpty()) {
             // Show error in red, truncated if needed
@@ -191,13 +189,13 @@ private:
     }
 
     void drawHoldProgress(float progress) {
-        const int barWidth = 80;
-        const int barHeight = 4;
+        const int barWidth = 60;
+        const int barHeight = 3;
         const int barX = (SCREEN_WIDTH - barWidth) / 2;
-        const int barY = HEADER_Y + HEADER_HEIGHT - barHeight - 2;
+        const int barY = FOOTER_Y + 4;
 
         // Background track
-        M5.Display.fillRect(barX, barY, barWidth, barHeight, COLOR_TEXT_DIM);
+    M5.Display.fillRect(barX, barY, barWidth, barHeight, COLOR_TEXT_DIM);
 
         int filled = (int)(barWidth * min(max(progress, 0.0f), 1.0f));
         if (filled > 0) {
