@@ -413,7 +413,7 @@ private:
         // Subtitle
         M5.Display.setTextSize(1);
         M5.Display.setTextColor(COLOR_OVERLAY_SUB, COLOR_OVERLAY_BG);
-        M5.Display.drawString("Waiting for OndePi server...", boxX + boxW / 2, boxY + 58);
+        M5.Display.drawString("Waiting for OndePi device...", boxX + boxW / 2, boxY + 58);
         
         // Animated dots hint
         M5.Display.setTextColor(COLOR_ACCENT, COLOR_OVERLAY_BG);

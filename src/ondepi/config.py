@@ -176,11 +176,11 @@ def validation_issues(config: AppConfig) -> list[dict[str, str]]:
         issues.append({"field": "stream.port", "message": "must be 1-65535"})
     if config.azuracast.enabled:
         if not config.azuracast.api_url:
-            issues.append({"field": "azuracast.api_url", "message": "is required when enabled"})
+            issues.append({"field": "azuracast.api_url", "message": "is required when enabled", "level": "warning"})
         if config.azuracast.station_id <= 0:
-            issues.append({"field": "azuracast.station_id", "message": "must be > 0"})
+            issues.append({"field": "azuracast.station_id", "message": "must be > 0", "level": "warning"})
         if not config.azuracast.access_token:
-            issues.append({"field": "azuracast.access_token", "message": "is required when enabled"})
+            issues.append({"field": "azuracast.access_token", "message": "is required when enabled", "level": "warning"})
     if config.metadata.push_interval_seconds <= 0:
         issues.append({"field": "metadata.push_interval_seconds", "message": "must be > 0"})
     if config.metadata.retry_attempts < 0:
@@ -197,7 +197,7 @@ def validation_issues(config: AppConfig) -> list[dict[str, str]]:
 
 
 def validation_errors(config: AppConfig) -> list[str]:
-    return [f"{issue['field']} {issue['message']}" for issue in validation_issues(config)]
+    return [f"{issue['field']} {issue['message']}" for issue in validation_issues(config) if issue.get("level") != "warning"]
 
 
 def validate_config(config: AppConfig) -> None:

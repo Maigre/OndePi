@@ -1,44 +1,58 @@
 from __future__ import annotations
 
-import json
+import logging
 import urllib.request
 from dataclasses import dataclass
 from typing import Optional
 
 from .config import AzuraCastConfig, MetadataConfig
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class AzuraCastClient:
     config: AzuraCastConfig
 
-    def update_streamer_metadata(self, metadata: MetadataConfig) -> None:
+    def update_config(self, config: AzuraCastConfig) -> None:
+        """Update the AzuraCast configuration."""
+        self.config = config
+
+    def update_nowplaying(self) -> None:
+        """Force AzuraCast to re-read Now Playing metadata from Icecast."""
         if not self.config.enabled:
             return
         if not self.config.api_url or not self.config.station_id or not self.config.access_token:
-            raise ValueError("AzuraCast config missing api_url, station_id, or access_token")
+            logger.warning("AzuraCast enabled but missing api_url, station_id, or access_token – skipping")
+            return
 
-        song = format_song(metadata.artist, metadata.track)
-        url = f"{self.config.api_url.rstrip('/')}/station/{self.config.station_id}/streamer-metadata"
-        payload = json.dumps({"song": song}).encode("utf-8")
+        url = f"{self.config.api_url.rstrip('/')}/station/{self.config.station_id}/nowplaying/update"
         request = urllib.request.Request(
             url,
-            data=payload,
+            data=b"",
             method="POST",
             headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.config.access_token}",
+                "X-API-Key": self.config.access_token,
             },
         )
         with urllib.request.urlopen(request, timeout=5) as response:  # nosec - controlled URL
             response.read()
+        logger.info("AzuraCast now-playing refresh triggered")
 
-    def update_streamer_metadata_safe(self, metadata: MetadataConfig) -> Optional[str]:
+    def update_nowplaying_safe(self) -> Optional[str]:
         try:
-            self.update_streamer_metadata(metadata)
-        except Exception as exc:  # pragma: no cover - runtime only
+            self.update_nowplaying()
+        except Exception as exc:
+            logger.warning("AzuraCast nowplaying update failed: %s", exc)
             return str(exc)
         return None
+
+    # Legacy aliases kept for backward compatibility
+    def update_streamer_metadata(self, metadata: MetadataConfig) -> None:
+        self.update_nowplaying()
+
+    def update_streamer_metadata_safe(self, metadata: MetadataConfig) -> Optional[str]:
+        return self.update_nowplaying_safe()
 
 
 def format_song(artist: str, track: str) -> str:

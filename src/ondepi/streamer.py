@@ -1,17 +1,22 @@
 from __future__ import annotations
 
+import base64
+import logging
 import subprocess
 import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, List, Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
+from urllib.request import Request, urlopen
 
 from .audio import AudioEngine
 from .azuracast import AzuraCastClient
 from .config import AppConfig
 from .state import StreamState
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -130,8 +135,9 @@ class Streamer:
         self._process = None
         self._state.streaming = False
         self._state.started_at = None
+        # Trigger AzuraCast to re-read now-playing (will revert to AutoDJ)
         if self._azuracast:
-            self._azuracast.update_streamer_metadata(self._config.metadata)
+            self._azuracast.update_nowplaying_safe()
 
     def status(self) -> dict:
         output_url = None
@@ -151,6 +157,33 @@ class Streamer:
 
     def update_config(self, config: AppConfig) -> None:
         self._config = config
+        if self._azuracast:
+            self._azuracast.update_config(config.azuracast)
+        if self._state.streaming:
+            self.push_metadata()
+
+    def push_metadata(self) -> None:
+        url = self._build_icecast_metadata_url()
+        if not url:
+            return
+        stream = self._config.stream
+        user = stream.username or "source"
+        password = stream.password or ""
+        token = base64.b64encode(f"{user}:{password}".encode("utf-8")).decode("utf-8")
+        req = Request(url)
+        req.add_header("Authorization", f"Basic {token}")
+        try:
+            with urlopen(req, timeout=5) as response:
+                response.read()
+            logger.info("Icecast metadata pushed")
+        except Exception as exc:  # pragma: no cover - network dependent
+            logger.warning("Icecast metadata push failed: %s", exc)
+
+        # Trigger AzuraCast to re-read the updated Icecast metadata
+        if self._azuracast:
+            error = self._azuracast.update_nowplaying_safe()
+            if error:
+                logger.warning("AzuraCast nowplaying refresh failed: %s", error)
 
     def _start_process(self, is_retry: bool) -> None:
         command = self.build_ffmpeg_command()
@@ -163,13 +196,13 @@ class Streamer:
         self._process = StreamProcess(command=command, process=process)
         self._state.streaming = True
         self._state.started_at = datetime.utcnow()
+        self.push_metadata()
         if not is_retry:
             self._state.last_error = None
         if self._audio_engine and process.stdin:
             self._audio_consumer = self._build_audio_consumer(process.stdin)
             self._audio_engine.add_consumer(self._audio_consumer)
         if self._azuracast:
-            self._azuracast.update_streamer_metadata(self._config.metadata)
             self._start_metadata_loop()
         self._start_monitor()
 
@@ -191,7 +224,7 @@ class Streamer:
         while not self._metadata_stop.is_set():
             metadata_cfg = self._config.metadata
             if metadata_cfg.push_enabled and self._azuracast:
-                error = self._azuracast.update_streamer_metadata_safe(metadata_cfg)
+                error = self._azuracast.update_nowplaying_safe()
                 if error:
                     self._state.last_error = f"metadata update failed: {error}"
                 attempts = max(metadata_cfg.retry_attempts, 0)
@@ -200,7 +233,7 @@ class Streamer:
                 while error and retry_index < attempts and not self._metadata_stop.is_set():
                     if self._metadata_stop.wait(delay):
                         break
-                    error = self._azuracast.update_streamer_metadata_safe(metadata_cfg)
+                    error = self._azuracast.update_nowplaying_safe()
                     if error:
                         self._state.last_error = f"metadata update failed: {error}"
                     retry_index += 1
@@ -253,6 +286,28 @@ class Streamer:
         if self._stop_requested:
             return
         self._start_process(is_retry=True)
+
+    def _build_icecast_metadata_url(self) -> Optional[str]:
+        stream = self._config.stream
+        metadata = self._config.metadata
+        if not stream.server or not stream.mount:
+            return None
+
+        artist = (metadata.artist or "").strip()
+        title = (metadata.track or "").strip()
+        if artist and title:
+            song = f"{artist} - {title}"
+        else:
+            song = artist or title
+        if not song:
+            return None
+
+        mount = stream.mount
+        if not mount.startswith("/"):
+            mount = "/" + mount
+        scheme = "https" if stream.tls else "http"
+        query = urlencode({"mode": "updinfo", "mount": mount, "song": song})
+        return f"{scheme}://{stream.server}:{stream.port}/admin/metadata?{query}"
 
     def _build_audio_consumer(self, stdin) -> Callable:
         def _consumer(chunk):
