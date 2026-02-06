@@ -132,10 +132,26 @@ private:
             newError = doc["error"].as<String>();
         }
         
+        // Ignore errors that were already dismissed (server keeps re-sending)
+        if (!newError.isEmpty() && newError == state.status.dismissedError) {
+            newError = "";
+        }
+        // A genuinely new error clears the dismissed memory
+        if (!newError.isEmpty() && newError != state.status.dismissedError) {
+            state.status.dismissedError = "";
+        }
+        
         // Only trigger full redraw if something visually changed
         bool changed = (newStreaming != wasStreaming);
         if (newError != state.status.error) changed = true;
         
+        // Timestamp new errors for auto-clear (before overwriting state)
+        if (!newError.isEmpty() && newError != state.status.error) {
+            state.status.errorReceivedAt = millis();
+        } else if (newError.isEmpty()) {
+            state.status.errorReceivedAt = 0;
+        }
+
         state.status.streaming = newStreaming;
         state.status.connected = true;
         state.status.duration = newDuration;

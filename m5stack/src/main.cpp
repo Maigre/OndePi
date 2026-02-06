@@ -132,6 +132,7 @@ void updateUI() {
     ui.updateMeters(state);
     ui.updateClipIndicator(state);
     ui.updateLimiterIndicator(state);
+    ui.updateErrorMessage(state);
     ui.updateStatus(state);
     ui.updateGain(state);
     ui.updateHoldProgress(state);

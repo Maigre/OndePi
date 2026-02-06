@@ -34,6 +34,11 @@
 #define CLIP_IND_Y          (METER_Y - 18)
 #define LIMITER_IND_Y       (METER_Y + METER_HEIGHT * 2 + METER_SPACING + 5)
 
+// Error message (centered between limiter indicator and gain)
+#define ERROR_MSG_Y         140
+#define ERROR_MSG_HEIGHT    16
+#define ERROR_TIMEOUT_MS    5000    // Auto-clear error after 5 seconds
+
 // Gain display
 #define GAIN_Y              160
 #define GAIN_HEIGHT         30

@@ -28,6 +28,7 @@ public:
         drawMeters(state);
         drawClipIndicator(state, true);
         drawLimiterIndicator(state, true);
+        drawErrorMessage(state, true);
         drawGain(state);
         drawFooter(state);
         drawHoldProgress(0.0f);
@@ -104,6 +105,18 @@ public:
         drawLimiterIndicator(state, false);
     }
     
+    void updateErrorMessage(AppState& state) {
+        // Auto-clear expired errors and remember them so server re-sends are ignored
+        if (!state.status.error.isEmpty() && state.status.errorReceivedAt > 0) {
+            if (millis() - state.status.errorReceivedAt > ERROR_TIMEOUT_MS) {
+                state.status.dismissedError = state.status.error;
+                state.status.error = "";
+                state.status.errorReceivedAt = 0;
+            }
+        }
+        drawErrorMessage(state, false);
+    }
+    
     void showDisconnectOverlay(AppState& state) {
         if (state.overlayShown) return;
         state.overlayShown = true;
@@ -123,6 +136,7 @@ private:
     bool _lastStreaming = false;
     unsigned long _lastDuration = 0;
     String _lastError = "";
+    String _lastDisplayedError = "";
     float _lastGainDb = 0.0f;
     PendingAction _lastPendingAction = PENDING_NONE;
     float _lastHoldProgress = -1.0f;
@@ -171,17 +185,11 @@ private:
         // Clear status area
         M5.Display.fillRect(0, STATUS_Y, SCREEN_WIDTH, STATUS_HEIGHT, COLOR_BG);
         
-        // Duration or error (right aligned)
+        // Duration (right aligned, size 2 for readability)
+        M5.Display.setTextSize(2);
         int dotY = STATUS_Y + STATUS_HEIGHT / 2;
         M5.Display.setTextDatum(MR_DATUM);
-        if (!state.status.error.isEmpty()) {
-            // Show error in red, truncated if needed
-            M5.Display.setTextColor(COLOR_ERROR, COLOR_BG);
-            String err = state.status.error;
-            if (err.length() > 12) err = err.substring(0, 11) + "~";
-            M5.Display.drawString(err, SCREEN_WIDTH - 10, dotY);
-        } else if (state.status.streaming || state.status.duration > 0) {
-            // Show duration
+        if (state.status.streaming || state.status.duration > 0) {
             M5.Display.setTextColor(COLOR_TEXT_DIM, COLOR_BG);
             String duration = formatDuration(state.status.duration);
             M5.Display.drawString(duration, SCREEN_WIDTH - 10, dotY);
@@ -335,6 +343,27 @@ private:
             M5.Display.drawString("LIMITING", indX + indWidth / 2, LIMITER_IND_Y + indHeight / 2);
         } else {
             M5.Display.fillRect(indX, LIMITER_IND_Y, indWidth, indHeight, COLOR_BG);
+        }
+    }
+    
+    // -------------------------------------------------------------------------
+    // Error Message (centered between limiter indicator and gain)
+    // -------------------------------------------------------------------------
+    
+    void drawErrorMessage(AppState& state, bool force) {
+        if (!force && state.status.error == _lastDisplayedError) return;
+        _lastDisplayedError = state.status.error;
+        
+        // Clear error area
+        M5.Display.fillRect(0, ERROR_MSG_Y, SCREEN_WIDTH, ERROR_MSG_HEIGHT, COLOR_BG);
+        
+        if (!state.status.error.isEmpty()) {
+            M5.Display.setTextSize(1);
+            M5.Display.setTextDatum(MC_DATUM);
+            M5.Display.setTextColor(COLOR_ERROR, COLOR_BG);
+            String err = state.status.error;
+            if (err.length() > 30) err = err.substring(0, 29) + "~";
+            M5.Display.drawString(err, SCREEN_WIDTH / 2, ERROR_MSG_Y + ERROR_MSG_HEIGHT / 2);
         }
     }
     

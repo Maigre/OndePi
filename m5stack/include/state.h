@@ -35,8 +35,10 @@ struct StreamStatus {
     bool streaming = false;
     bool connected = false;
     String error = "";
+    String dismissedError = "";  // Last auto-expired error (ignore if server re-sends)
     unsigned long startTime = 0;  // millis() when streaming started
     unsigned long duration = 0;   // Duration in seconds from server
+    unsigned long errorReceivedAt = 0;  // millis() when error was set (for auto-clear)
 };
 
 enum PendingAction : uint8_t {
