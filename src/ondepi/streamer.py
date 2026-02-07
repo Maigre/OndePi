@@ -124,14 +124,19 @@ class Streamer:
         # Clear these first to prevent auto-restart race conditions
         self._stop_requested = True
         self._state.streaming_requested = False
-        
-        if not self._process:
+
+        # Capture reference — monitor thread may set self._process = None concurrently
+        proc = self._process
+        if not proc:
             return
         self._metadata_stop.set()
         self._cleanup_audio()
-        self._process.process.terminate()
-        self._process.process.wait(timeout=5)
-        self._state.last_exit_code = self._process.process.returncode
+        try:
+            proc.process.terminate()
+            proc.process.wait(timeout=5)
+            self._state.last_exit_code = proc.process.returncode
+        except Exception:
+            pass
         self._process = None
         self._state.streaming = False
         self._state.started_at = None
