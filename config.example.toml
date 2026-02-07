@@ -22,6 +22,7 @@ bitrate_mode = "cbr" # cbr|vbr
 server = "icecast.example.com"
 port = 8000
 mount = "live"
+tls = true
 username = "source"
 password = "change-me"
 icy = true
@@ -46,7 +47,6 @@ port = ""
 baudrate = 115200
 
 [azuracast]
-enabled = false
-api_url = "https://your-azuracast.example/api"
+# API URL is derived from stream server (https://<server>/api)
 station_id = 0
-access_token = "your-token-here"
+access_token = ""

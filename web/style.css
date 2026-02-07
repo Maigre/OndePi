@@ -52,6 +52,7 @@ h4{font-size:.8rem;color:var(--txt2);margin-bottom:.4rem;font-weight:500}
 .inp-sm{flex:0 0 auto;width:70px}
 .inp-md{flex:0 0 auto;width:120px}
 .chk{display:flex;align-items:center;gap:.25rem;font-size:.75rem;color:var(--txt2);white-space:nowrap;flex:0 0 auto}
+.lbl{font-size:.7rem;color:var(--txt2);white-space:nowrap;flex:0 0 auto}
 .btn{display:inline-flex;align-items:center;justify-content:center;padding:.35rem .6rem;border:none;border-radius:5px;font-size:.75rem;font-weight:500;cursor:pointer;transition:opacity .15s}
 .btn:hover{opacity:.85}
 .btn:disabled{opacity:.5;cursor:not-allowed}

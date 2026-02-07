@@ -58,7 +58,7 @@ def main() -> None:
         for error in errors:
             print(f"- {error}")
     state = StreamState()
-    azuracast = AzuraCastClient(config.azuracast)
+    azuracast = AzuraCastClient(config.azuracast, stream_config=config.stream)
     audio_engine = AudioEngine(config.input, state)
     streamer = Streamer(config, state, azuracast=azuracast, audio_engine=audio_engine)
     api = ApiService(

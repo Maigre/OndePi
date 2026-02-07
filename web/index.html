@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OndePi</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -37,17 +38,18 @@
           <div class="divider"></div>
           <h4>Info</h4>
           <div class="form-row">
-            <input type="text" id="cfg-artist" class="inp" placeholder="Artist">
-            <input type="text" id="cfg-title" class="inp" placeholder="Title">
+            <label class="lbl">Artist</label><input type="text" id="cfg-artist" class="inp" placeholder="Artist">
+            <label class="lbl">Title</label><input type="text" id="cfg-title" class="inp" placeholder="Title">
           </div>
           <div class="divider"></div>
           <h4>Icecast</h4>
-          <div class="form-row"><input type="text" id="cfg-host" class="inp" placeholder="URL"><input type="number" id="cfg-port" class="inp inp-sm" placeholder="Port"><input type="text" id="cfg-mount" class="inp inp-md" placeholder="Mount"><label class="chk"><input type="checkbox" id="cfg-tls">SSL</label></div>
-          <div class="form-row"><input type="text" id="cfg-user" class="inp" placeholder="User"><input type="password" id="cfg-password" class="inp" placeholder="Password"><select id="cfg-format" class="inp inp-sm"><option value="mp3">MP3</option><option value="aac">AAC</option><option value="opus">Opus</option></select><select id="cfg-bitrate" class="inp inp-sm"><option value="128">128k</option><option value="192">192k</option><option value="256" selected>256k</option><option value="320">320k</option></select><label class="chk"><input type="checkbox" id="cfg-icy" checked>ICY</label></div>
+          <div class="form-row"><label class="lbl">Host</label><input type="text" id="cfg-host" class="inp" placeholder="stream.example.com"></div>
+          <div class="form-row"><label class="lbl">Port</label><input type="number" id="cfg-port" class="inp inp-sm" placeholder="8000"><label class="lbl">Mount</label><input type="text" id="cfg-mount" class="inp" placeholder="/live"></div>
+          <div class="form-row"><label class="lbl">User</label><input type="text" id="cfg-user" class="inp" placeholder="source"><label class="lbl">Password</label><input type="password" id="cfg-password" class="inp"></div>
+          <div class="form-row"><label class="lbl">Format</label><select id="cfg-format" class="inp inp-sm"><option value="mp3">MP3</option><option value="aac">AAC</option><option value="opus">Opus</option></select><label class="lbl">Bitrate</label><select id="cfg-bitrate" class="inp inp-sm"><option value="128">128k</option><option value="192">192k</option><option value="256" selected>256k</option><option value="320">320k</option></select></div>
           <div class="divider"></div>
           <h4>AzuraCast</h4>
-          <div class="form-row"><label class="chk"><input type="checkbox" id="cfg-az-enabled">Enable</label><input type="text" id="cfg-az-url" class="inp" placeholder="API URL"><input type="number" id="cfg-az-station" class="inp inp-sm" placeholder="Station ID"></div>
-          <div class="form-row"><input type="password" id="cfg-az-token" class="inp" placeholder="Access Token"></div>
+          <div class="form-row"><label class="lbl">Station</label><input type="number" id="cfg-az-station" class="inp inp-sm" placeholder="ID"><label class="lbl">Token</label><input type="password" id="cfg-az-token" class="inp"></div>
           <button id="btn-connect" class="btn btn-success btn-sm btn-block">Connect</button>
         </div>
         <div class="card card-audio">

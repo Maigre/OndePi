@@ -43,7 +43,7 @@ class StreamConfig:
     server: str = ""
     port: int = 8000
     mount: str = ""
-    tls: bool = False
+    tls: bool = True
     username: str = "source"
     password: str = ""
     icy: bool = True
@@ -77,10 +77,11 @@ class SerialConfig:
 
 @dataclass
 class AzuraCastConfig:
-    enabled: bool = False
-    api_url: str = ""
     station_id: int = 0
     access_token: str = ""
+    # api_url is derived at runtime from stream.server; kept for backward compat
+    api_url: str = ""
+    enabled: bool = True  # kept for backward compat with saved configs
 
 
 @dataclass
@@ -174,13 +175,10 @@ def validation_issues(config: AppConfig) -> list[dict[str, str]]:
         issues.append({"field": "stream.mount", "message": "is required"})
     if not (1 <= config.stream.port <= 65535):
         issues.append({"field": "stream.port", "message": "must be 1-65535"})
-    if config.azuracast.enabled:
-        if not config.azuracast.api_url:
-            issues.append({"field": "azuracast.api_url", "message": "is required when enabled", "level": "warning"})
-        if config.azuracast.station_id <= 0:
-            issues.append({"field": "azuracast.station_id", "message": "must be > 0", "level": "warning"})
-        if not config.azuracast.access_token:
-            issues.append({"field": "azuracast.access_token", "message": "is required when enabled", "level": "warning"})
+    if config.azuracast.station_id and not config.azuracast.access_token:
+        issues.append({"field": "azuracast.access_token", "message": "is required when station_id is set", "level": "warning"})
+    if config.azuracast.access_token and not config.azuracast.station_id:
+        issues.append({"field": "azuracast.station_id", "message": "is required when access_token is set", "level": "warning"})
     if config.metadata.push_interval_seconds <= 0:
         issues.append({"field": "metadata.push_interval_seconds", "message": "must be > 0"})
     if config.metadata.retry_attempts < 0:

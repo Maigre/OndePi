@@ -5,7 +5,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Optional
 
-from .config import AzuraCastConfig, MetadataConfig
+from .config import AzuraCastConfig, MetadataConfig, StreamConfig
 
 logger = logging.getLogger(__name__)
 
@@ -13,20 +13,34 @@ logger = logging.getLogger(__name__)
 @dataclass
 class AzuraCastClient:
     config: AzuraCastConfig
+    stream_config: Optional[StreamConfig] = None
 
-    def update_config(self, config: AzuraCastConfig) -> None:
+    def update_config(self, config: AzuraCastConfig, stream_config: Optional[StreamConfig] = None) -> None:
         """Update the AzuraCast configuration."""
         self.config = config
+        if stream_config is not None:
+            self.stream_config = stream_config
+
+    def _get_api_url(self) -> str:
+        """Derive the AzuraCast API URL from the Icecast server host."""
+        # Use explicit api_url if set (backward compat), otherwise derive from stream server
+        if self.config.api_url:
+            return self.config.api_url.rstrip("/")
+        if self.stream_config and self.stream_config.server:
+            return f"https://{self.stream_config.server}/api"
+        return ""
 
     def update_nowplaying(self) -> None:
         """Force AzuraCast to re-read Now Playing metadata from Icecast."""
-        if not self.config.enabled:
-            return
-        if not self.config.api_url or not self.config.station_id or not self.config.access_token:
-            logger.warning("AzuraCast enabled but missing api_url, station_id, or access_token – skipping")
+        if not self.config.station_id or not self.config.access_token:
             return
 
-        url = f"{self.config.api_url.rstrip('/')}/station/{self.config.station_id}/nowplaying/update"
+        api_url = self._get_api_url()
+        if not api_url:
+            logger.warning("AzuraCast: cannot derive API URL – no stream server configured")
+            return
+
+        url = f"{api_url}/station/{self.config.station_id}/nowplaying/update"
         request = urllib.request.Request(
             url,
             data=b"",

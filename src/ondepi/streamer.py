@@ -158,7 +158,7 @@ class Streamer:
     def update_config(self, config: AppConfig) -> None:
         self._config = config
         if self._azuracast:
-            self._azuracast.update_config(config.azuracast)
+            self._azuracast.update_config(config.azuracast, stream_config=config.stream)
         if self._state.streaming:
             self.push_metadata()
 
@@ -305,9 +305,10 @@ class Streamer:
         mount = stream.mount
         if not mount.startswith("/"):
             mount = "/" + mount
-        scheme = "https" if stream.tls else "http"
+        # Icecast admin API on the direct port is always plain HTTP;
+        # TLS is handled by the reverse-proxy (e.g. AzuraCast) on port 443.
         query = urlencode({"mode": "updinfo", "mount": mount, "song": song})
-        return f"{scheme}://{stream.server}:{stream.port}/admin/metadata?{query}"
+        return f"http://{stream.server}:{stream.port}/admin/metadata?{query}"
 
     def _build_audio_consumer(self, stdin) -> Callable:
         def _consumer(chunk):

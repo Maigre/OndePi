@@ -352,18 +352,16 @@ const StreamControls = {
         server: document.getElementById("cfg-host").value,
         port: parseInt(document.getElementById("cfg-port").value) || 8000,
         mount: document.getElementById("cfg-mount").value,
-        tls: document.getElementById("cfg-tls").checked,
+        tls: true,
         username: document.getElementById("cfg-user").value || "source",
         password: document.getElementById("cfg-password").value,
         format: document.getElementById("cfg-format").value,
         bitrate_kbps: parseInt(document.getElementById("cfg-bitrate").value) || 256,
         bitrate_mode: (base.stream && base.stream.bitrate_mode) || "cbr",
-        icy: document.getElementById("cfg-icy").checked
+        icy: true
       },
       azuracast: {
         ...(base.azuracast || {}),
-        enabled: document.getElementById("cfg-az-enabled").checked,
-        api_url: document.getElementById("cfg-az-url").value,
         station_id: parseInt(document.getElementById("cfg-az-station").value) || 0,
         access_token: document.getElementById("cfg-az-token").value
       }
@@ -454,17 +452,13 @@ const ConfigForm = {
     document.getElementById("cfg-host").value = stream.server || "";
     document.getElementById("cfg-port").value = stream.port || "";
     document.getElementById("cfg-mount").value = stream.mount || "";
-    document.getElementById("cfg-tls").checked = stream.tls ?? false;
     document.getElementById("cfg-user").value = stream.username || "source";
     document.getElementById("cfg-password").value = stream.password || "";
-    document.getElementById("cfg-icy").checked = stream.icy ?? true;
     document.getElementById("cfg-format").value = stream.format || "mp3";
     document.getElementById("cfg-bitrate").value = stream.bitrate_kbps || 256;
     document.getElementById("cfg-artist").value = metadata.artist || "";
     document.getElementById("cfg-title").value = metadata.track || "";
     this._lastMetadata = { artist: metadata.artist || "", track: metadata.track || "" };
-    document.getElementById("cfg-az-enabled").checked = az.enabled ?? false;
-    document.getElementById("cfg-az-url").value = az.api_url || "";
     document.getElementById("cfg-az-station").value = az.station_id || "";
     document.getElementById("cfg-az-token").value = az.access_token || "";
   // Gain is now loaded from status API, not config
@@ -487,14 +481,13 @@ const ConfigForm = {
     }
     // AzuraCast warnings (non-blocking)
     const az = cfg.azuracast || {};
-    if (az.enabled) {
+    if (az.station_id && az.access_token) {
+      // AzuraCast configured — no warning needed
+    } else if (az.station_id || az.access_token) {
       const missing = [];
-      if (!az.api_url) missing.push("API URL");
       if (!az.station_id) missing.push("Station ID");
       if (!az.access_token) missing.push("Access Token");
-      if (missing.length > 0) {
-        Toast.show("AzuraCast: missing " + missing.join(", "), "error");
-      }
+      Toast.show("AzuraCast: missing " + missing.join(", "), "error");
     }
   },
   init() {
@@ -502,16 +495,12 @@ const ConfigForm = {
       "cfg-host",
       "cfg-port",
       "cfg-mount",
-      "cfg-tls",
       "cfg-user",
       "cfg-password",
       "cfg-format",
       "cfg-bitrate",
-      "cfg-icy",
       "cfg-artist",
       "cfg-title",
-      "cfg-az-enabled",
-      "cfg-az-url",
       "cfg-az-station",
       "cfg-az-token"
     ];
@@ -558,17 +547,15 @@ const ConfigForm = {
         server: document.getElementById("cfg-host").value,
         port: parseInt(document.getElementById("cfg-port").value) || 8000,
         mount: document.getElementById("cfg-mount").value,
-        tls: document.getElementById("cfg-tls").checked,
+        tls: true,
         username: document.getElementById("cfg-user").value || "source",
         password: document.getElementById("cfg-password").value,
         format: document.getElementById("cfg-format").value,
         bitrate_kbps: parseInt(document.getElementById("cfg-bitrate").value) || 256,
         bitrate_mode: (AppState.config?.stream && AppState.config.stream.bitrate_mode) || "cbr",
-        icy: document.getElementById("cfg-icy").checked
+        icy: true
       },
       azuracast: {
-        enabled: document.getElementById("cfg-az-enabled").checked,
-        api_url: document.getElementById("cfg-az-url").value,
         station_id: parseInt(document.getElementById("cfg-az-station").value) || 0,
         access_token: document.getElementById("cfg-az-token").value
       }
