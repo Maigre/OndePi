@@ -25,6 +25,7 @@ public:
         M5.Display.fillScreen(COLOR_BG);
         drawHeader(state);
         drawStatus(state);
+        drawUplinkIndicator(state, true);
         drawMeters(state);
         drawClipIndicator(state, true);
         drawLimiterIndicator(state, true);
@@ -55,8 +56,10 @@ public:
         bool durationChanged = (state.status.duration != _lastDuration);
         bool errorChanged = (state.status.error != _lastError);
         bool pendingChanged = (state.pendingAction != _lastPendingAction);
+        bool uplinkChanged = (state.status.uplinkChecked != _lastUplinkChecked)
+                          || (state.status.uplinkOk != _lastUplinkOk);
         
-        if (!streamingChanged && !durationChanged && !errorChanged && !pendingChanged) {
+        if (!streamingChanged && !durationChanged && !errorChanged && !pendingChanged && !uplinkChanged) {
             return;  // Nothing changed, skip redraw
         }
         
@@ -64,9 +67,12 @@ public:
         _lastDuration = state.status.duration;
         _lastError = state.status.error;
         _lastPendingAction = state.pendingAction;
+        _lastUplinkOk = state.status.uplinkOk;
+        _lastUplinkChecked = state.status.uplinkChecked;
         
         drawStatus(state);
         drawHeader(state);
+        drawUplinkIndicator(state, false);
     }
 
     void updateHoldProgress(AppState& state) {
@@ -134,6 +140,8 @@ private:
     bool _lastClipping = false;
     bool _lastLimiting = false;
     bool _lastStreaming = false;
+    bool _lastUplinkOk = false;
+    bool _lastUplinkChecked = false;
     unsigned long _lastDuration = 0;
     String _lastError = "";
     String _lastDisplayedError = "";
@@ -208,6 +216,39 @@ private:
         int filled = (int)(barWidth * min(max(progress, 0.0f), 1.0f));
         if (filled > 0) {
             M5.Display.fillRect(barX, barY, filled, barHeight, COLOR_ACCENT);
+        }
+    }
+    
+    // -------------------------------------------------------------------------
+    // Uplink Indicator
+    // -------------------------------------------------------------------------
+    
+    void drawUplinkIndicator(AppState& state, bool force) {
+        if (!force && state.status.uplinkOk == _lastUplinkOk
+                   && state.status.uplinkChecked == _lastUplinkChecked) return;
+        
+        // Draw in the status area (left side)
+        int dotY = STATUS_Y + STATUS_HEIGHT / 2;
+        
+        M5.Display.setTextSize(1);
+        M5.Display.setTextDatum(ML_DATUM);
+        
+        // Clear the left portion of the status area for the uplink indicator
+        M5.Display.fillRect(0, STATUS_Y, 100, STATUS_HEIGHT, COLOR_BG);
+        
+        if (!state.status.uplinkChecked) {
+            M5.Display.setTextColor(COLOR_TEXT_DIM, COLOR_BG);
+            M5.Display.drawString("UPLINK: --", 10, dotY);
+        } else if (state.status.uplinkOk) {
+            // Green dot + OK
+            M5.Display.fillCircle(15, dotY, 4, COLOR_UPLINK_OK);
+            M5.Display.setTextColor(COLOR_UPLINK_OK, COLOR_BG);
+            M5.Display.drawString("UPLINK", 24, dotY);
+        } else {
+            // Red dot + FAIL
+            M5.Display.fillCircle(15, dotY, 4, COLOR_UPLINK_FAIL);
+            M5.Display.setTextColor(COLOR_UPLINK_FAIL, COLOR_BG);
+            M5.Display.drawString("UPLINK", 24, dotY);
         }
     }
     

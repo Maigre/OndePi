@@ -157,6 +157,16 @@ private:
         state.status.duration = newDuration;
         state.status.error = newError;
 
+        // Uplink status
+        if (doc["uplink_ok"].is<bool>()) {
+            bool newUplink = doc["uplink_ok"] | false;
+            if (!state.status.uplinkChecked || newUplink != state.status.uplinkOk) {
+                changed = true;
+            }
+            state.status.uplinkOk = newUplink;
+            state.status.uplinkChecked = true;
+        }
+
         // Resolve pending command when status updates or error arrives
         if (state.pendingAction != PENDING_NONE) {
             bool resolved = (state.status.error.length() > 0);

@@ -21,6 +21,7 @@ from .config import (
 from .serial_bridge import SerialBridge
 from .state import StreamState
 from .streamer import Streamer
+from .uplink import UplinkChecker
 
 
 class EndpointFilter(logging.Filter):
@@ -61,12 +62,14 @@ def main() -> None:
     azuracast = AzuraCastClient(config.azuracast, stream_config=config.stream)
     audio_engine = AudioEngine(config.input, state)
     streamer = Streamer(config, state, azuracast=azuracast, audio_engine=audio_engine)
+    uplink_checker = UplinkChecker(config.stream, state)
     api = ApiService(
         config,
         state,
         streamer,
         audio_engine=audio_engine,
         config_path=str(config_path),
+        uplink_checker=uplink_checker,
     )
 
     # Serial bridge to M5Stack
@@ -77,11 +80,13 @@ def main() -> None:
         audio_engine=audio_engine,
     )
     serial_bridge.start()
+    uplink_checker.start()
 
     # Register serial shutdown
     @api.app.on_event("shutdown")
     def shutdown_serial() -> None:
         serial_bridge.stop()
+        uplink_checker.stop()
 
     # Filter out noisy /api/levels from access logs
     logging.getLogger("uvicorn.access").addFilter(EndpointFilter(["/api/levels"]))

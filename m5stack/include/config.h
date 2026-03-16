@@ -109,6 +109,8 @@
 #define COLOR_CLIP_TEXT     TFT_WHITE
 #define COLOR_LIMITER_BG    0xFD20  // Orange
 #define COLOR_LIMITER_TEXT  TFT_BLACK
+#define COLOR_UPLINK_OK     0x07E0  // Green
+#define COLOR_UPLINK_FAIL   TFT_RED
 
 // Button hint colors
 #define COLOR_BTN_HINT      TFT_DARKGREY

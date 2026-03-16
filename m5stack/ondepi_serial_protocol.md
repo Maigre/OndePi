@@ -20,7 +20,7 @@ This protocol is shared between the Raspberry Pi (server) and M5Stack Core (hard
 
 | Type | Payload | Description |
 | --- | --- | --- |
-| status | `{ "type": "status", "streaming": true, "duration": 3661, "error": null }` | Overall status with stream duration in seconds |
+| status | `{ "type": "status", "streaming": true, "duration": 3661, "error": null, "uplink_ok": true }` | Overall status with stream duration and uplink connectivity |
 | levels | `{ "type": "levels", "left_rms": 0.2, "right_rms": 0.18, "left_peak": 0.7, "right_peak": 0.65, "clipping": false, "limiting": false }` | Stereo input meters with indicators |
 | gain | `{ "type": "gain", "value": 1.5 }` | Echo current gain value |
 
@@ -32,12 +32,14 @@ This protocol is shared between the Raspberry Pi (server) and M5Stack Core (hard
   "type": "status",
   "streaming": true,
   "duration": 3661,
-  "error": null
+  "error": null,
+  "uplink_ok": true
 }
 ```
 - `streaming`: boolean - whether currently streaming
 - `duration`: integer - stream duration in seconds (0 when stopped)
 - `error`: string or null - error message if any
+- `uplink_ok`: boolean or null - Icecast server reachable (null if not yet checked)
 
 ### Levels Event
 ```json

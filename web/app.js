@@ -700,6 +700,18 @@ const StatusUpdater = {
       }
     document.getElementById("retry-count").textContent = state.retry_count || 0;
     document.getElementById("dropout-count").textContent = s.device?.overflow_count || 0;
+      // Uplink status
+      const uplinkEl = document.getElementById("uplink-status");
+      if (state.uplink_ok === true) {
+        uplinkEl.textContent = "OK";
+        uplinkEl.className = "uplink-ind uplink-ok";
+      } else if (state.uplink_ok === false) {
+        uplinkEl.textContent = "FAIL";
+        uplinkEl.className = "uplink-ind uplink-fail";
+      } else {
+        uplinkEl.textContent = "--";
+        uplinkEl.className = "uplink-ind";
+      }
       this.setConnection(true);
       if (state.last_error) {
         if (!this.errorDismissed || state.last_error !== this.lastError) {

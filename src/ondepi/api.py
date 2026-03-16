@@ -10,6 +10,7 @@ from .config import AppConfig
 from .state import StreamState
 from .audio import AudioEngine
 from .streamer import Streamer
+from .uplink import UplinkChecker
 import sounddevice as sd
 import numpy as np
 from .config import save_config, validate_config, validation_errors, validation_issues
@@ -23,12 +24,14 @@ class ApiService:
         streamer: Streamer,
         audio_engine: AudioEngine | None = None,
         config_path: str | None = None,
+        uplink_checker: UplinkChecker | None = None,
     ) -> None:
         self._config = config
         self._state = state
         self._streamer = streamer
         self._audio_engine = audio_engine
         self._config_path = config_path
+        self._uplink_checker = uplink_checker
         self._audio_monitor_stop = False
         self._audio_monitor_thread = None
         self.app = FastAPI(title="OndePi")
@@ -156,6 +159,8 @@ class ApiService:
             self._streamer.update_config(updated)
             if self._audio_engine:
                 self._audio_engine.update_input(updated.input)
+            if self._uplink_checker:
+                self._uplink_checker.update_config(updated.stream)
             return {"ok": True}
 
         @app.patch("/api/config")
@@ -174,6 +179,8 @@ class ApiService:
             self._streamer.update_config(updated)
             if self._audio_engine:
                 self._audio_engine.update_input(updated.input)
+            if self._uplink_checker:
+                self._uplink_checker.update_config(updated.stream)
             return {"ok": True}
 
         @app.post("/api/gain")

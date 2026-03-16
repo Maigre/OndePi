@@ -39,6 +39,9 @@ h4{font-size:.8rem;color:var(--txt2);margin-bottom:.4rem;font-weight:500}
 .stats{display:flex;gap:.75rem;font-size:.75rem;color:var(--txt2)}
 .stats>div{display:flex;flex-direction:column}
 .stats span:last-child{color:var(--txt);font-weight:500}
+.uplink-ind{font-size:.7rem}
+.uplink-ok{color:var(--success)!important}
+.uplink-fail{color:var(--danger)!important;font-weight:600}
 .input-line{display:flex;gap:.5rem;align-items:baseline;flex-wrap:wrap;margin-top:.35rem}
 .input-status{font-size:.75rem;color:var(--txt2)}
 .input-status.ok{color:var(--success)}

@@ -34,6 +34,8 @@ struct AudioLevels {
 struct StreamStatus {
     bool streaming = false;
     bool connected = false;
+    bool uplinkOk = false;
+    bool uplinkChecked = false;
     String error = "";
     String dismissedError = "";  // Last auto-expired error (ignore if server re-sends)
     unsigned long startTime = 0;  // millis() when streaming started

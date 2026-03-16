@@ -162,6 +162,7 @@ class SerialBridge:
             "streaming": self._state.streaming,
             "duration": duration,
             "error": error,
+            "uplink_ok": self._state.uplink_ok,
         })
 
     def _send_gain(self) -> None:

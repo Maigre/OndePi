@@ -17,6 +17,7 @@ class SerialStatus:
     streaming: bool
     error: Optional[str] = None
     duration: int = 0  # seconds
+    uplink_ok: Optional[bool] = None
 
 
 @dataclass

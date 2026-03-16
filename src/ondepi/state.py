@@ -25,6 +25,7 @@ class StreamState:
     retry_count: int = 0
     last_retry_at: Optional[datetime] = None
     last_exit_code: Optional[int] = None
+    uplink_ok: Optional[bool] = None
 
     def as_dict(self) -> dict:
         return {
@@ -43,4 +44,5 @@ class StreamState:
             "retry_count": self.retry_count,
             "last_retry_at": self.last_retry_at.isoformat() if self.last_retry_at else None,
             "last_exit_code": self.last_exit_code,
+            "uplink_ok": self.uplink_ok,
         }
