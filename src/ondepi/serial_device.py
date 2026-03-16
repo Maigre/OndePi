@@ -7,10 +7,38 @@ import time
 from typing import Callable, Optional
 
 import serial
+import serial.tools.list_ports
 
 from .config import SerialConfig
 
 logger = logging.getLogger(__name__)
+
+# Known USB vendor:product IDs for M5Stack devices (QinHeng CH343/CH552)
+M5STACK_USB_IDS = [
+    (0x1A86, 0x55D4),  # QinHeng CH343 (M5Stack StampS3 / CoreS3 etc.)
+    (0x1A86, 0x7523),  # QinHeng CH340
+    (0x303A, 0x1001),  # Espressif native USB
+]
+
+
+def detect_m5stack_port() -> Optional[str]:
+    """Auto-detect an M5Stack serial port by USB vendor/product ID.
+
+    Returns the device path (e.g. /dev/ttyACM0 or /dev/ttyUSB0) or None.
+    """
+    for port_info in serial.tools.list_ports.comports():
+        if port_info.vid is not None and port_info.pid is not None:
+            for vid, pid in M5STACK_USB_IDS:
+                if port_info.vid == vid and port_info.pid == pid:
+                    logger.info(
+                        "Auto-detected M5Stack on %s (%s, vid=%04x pid=%04x)",
+                        port_info.device,
+                        port_info.description,
+                        port_info.vid,
+                        port_info.pid,
+                    )
+                    return port_info.device
+    return None
 
 
 class SerialDevice:
@@ -28,6 +56,8 @@ class SerialDevice:
         self._serial: Optional[serial.Serial] = None
         self._lock = threading.Lock()
         self._connected = False
+        self._auto_detect = config.port in ("", "auto")
+        self._resolved_port: Optional[str] = None
 
     @property
     def connected(self) -> bool:
@@ -35,16 +65,27 @@ class SerialDevice:
 
     @property
     def port(self) -> str:
-        return self._config.port
+        return self._resolved_port or self._config.port
 
     def start(self) -> None:
-        if not self._config.port:
-            logger.info("Serial port not configured, skipping serial device")
-            return
+        if self._auto_detect:
+            detected = detect_m5stack_port()
+            if detected:
+                self._resolved_port = detected
+                logger.info("Using auto-detected serial port: %s", detected)
+            else:
+                logger.info("No M5Stack detected yet, will keep scanning")
+        else:
+            self._resolved_port = self._config.port
+
         self._running = True
         self._thread = threading.Thread(target=self._run, daemon=True, name="serial-device")
         self._thread.start()
-        logger.info("Serial device started on %s @ %d", self._config.port, self._config.baudrate)
+        logger.info(
+            "Serial device started (port=%s, baudrate=%d)",
+            self._resolved_port or "auto-detect",
+            self._config.baudrate,
+        )
 
     def stop(self) -> None:
         self._running = False
@@ -76,10 +117,25 @@ class SerialDevice:
 
     def _connect(self) -> bool:
         """Try to open the serial port. Returns True on success."""
+        # Re-scan for the device if in auto-detect mode and no port resolved yet
+        if self._auto_detect:
+            detected = detect_m5stack_port()
+            if detected:
+                if detected != self._resolved_port:
+                    logger.info("Auto-detected M5Stack on %s", detected)
+                self._resolved_port = detected
+            else:
+                self._resolved_port = None
+                return False
+
+        port = self._resolved_port
+        if not port:
+            return False
+
         try:
             self._close()
             ser = serial.Serial()
-            ser.port = self._config.port
+            ser.port = port
             ser.baudrate = self._config.baudrate
             ser.timeout = 0.1  # Short timeout for responsive reading
             ser.dtr = False  # Don't reset ESP32 on connect
@@ -90,7 +146,7 @@ class SerialDevice:
             with self._lock:
                 self._serial = ser
                 self._connected = True
-            logger.info("Serial connected: %s", self._config.port)
+            logger.info("Serial connected: %s", port)
             return True
         except (serial.SerialException, OSError) as exc:
             logger.debug("Serial connect failed: %s", exc)

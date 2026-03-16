@@ -1,0 +1,29 @@
+[Unit]
+Description=OndePi - Headless audio live source streamer for AzuraCast
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+SupplementaryGroups=dialout audio
+WorkingDirectory=/home/pi/OndePi
+Environment="PATH=/home/pi/OndePi/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/home/pi/OndePi/.venv/bin/ondepi --config /home/pi/OndePi/config.toml
+
+# Restart configuration
+Restart=always
+RestartSec=10
+
+# Security and resource limits
+Nice=-5
+LimitNOFILE=65536
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ondepi
+
+[Install]
+WantedBy=multi-user.target

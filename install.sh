@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Install system dependencies
+echo "Installing system dependencies..."
+sudo apt update
+sudo apt install -y libportaudio2 ffmpeg
+
 if ! command -v uv >/dev/null 2>&1; then
   echo "uv not found. Installing..."
   curl -LsSf https://astral.sh/uv/install.sh | sh

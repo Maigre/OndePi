@@ -36,3 +36,8 @@
 - Add integration tests for API endpoints.
 - Add audio pipeline mock tests.
 - Add config migration tests.
+
+
+--------------
+07/02 first shot
+-> breaking 4g tethering while streaming put everything down 

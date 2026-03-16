@@ -42,8 +42,8 @@ bind = "0.0.0.0"
 port = 8090
 
 [serial]
-# e.g. /dev/ttyUSB0
-port = ""
+# "auto" to auto-detect M5Stack, or explicit path e.g. /dev/ttyUSB0, /dev/ttyACM0
+port = "auto"
 baudrate = 115200
 
 [azuracast]
