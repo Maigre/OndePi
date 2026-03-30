@@ -245,35 +245,73 @@ const InputClipIndicator = {
 
 const MonitorControl = {
   enabled: false,
+  locked: false,
+  _releaseTimer: null,
+  _unlocking: false,
   init() {
     const btn = document.getElementById("btn-monitor");
-    btn.addEventListener("click", () => this.toggle());
+    btn.addEventListener("mousedown", (e) => { e.preventDefault(); this.onPress(); });
+    btn.addEventListener("mouseup", () => this.onRelease());
+    btn.addEventListener("mouseleave", () => this.onRelease());
+    btn.addEventListener("touchstart", (e) => { e.preventDefault(); this.onPress(); });
+    btn.addEventListener("touchend", (e) => { e.preventDefault(); this.onRelease(); });
+    btn.addEventListener("dblclick", (e) => { e.preventDefault(); this.onDblClick(); });
+    btn.addEventListener("contextmenu", (e) => e.preventDefault());
   },
-  async toggle() {
-    const btn = document.getElementById("btn-monitor");
-    const newState = !this.enabled;
-    try {
-      const res = await API.post("monitor", { enabled: newState });
-      this.enabled = !!res.enabled;
-      if (this.enabled) {
-        btn.classList.add("active");
-        Toast.show("Monitoring enabled", "success");
-      } else {
-        btn.classList.remove("active");
-        Toast.show("Monitoring disabled", "success");
-      }
-    } catch (e) {
-      Toast.show("Failed to toggle monitor", "error");
+  onPress() {
+    if (this._releaseTimer) {
+      clearTimeout(this._releaseTimer);
+      this._releaseTimer = null;
     }
+    if (this.locked) {
+      this.locked = false;
+      this._unlocking = true;
+      this.setMonitor(false);
+      Toast.show("Monitor unlocked", "success");
+      return;
+    }
+    this._unlocking = false;
+    this.setMonitor(true);
+  },
+  onRelease() {
+    if (this.locked || this._unlocking) return;
+    if (!this.enabled) return;
+    this._releaseTimer = setTimeout(() => {
+      this._releaseTimer = null;
+      if (!this.locked) {
+        this.setMonitor(false);
+      }
+    }, 300);
+  },
+  onDblClick() {
+    if (this._releaseTimer) {
+      clearTimeout(this._releaseTimer);
+      this._releaseTimer = null;
+    }
+    this.locked = true;
+    this.setMonitor(true);
+    Toast.show("Monitor locked", "success");
+    this.updateUI();
+  },
+  async setMonitor(enabled) {
+    try {
+      const res = await API.post("monitor", { enabled });
+      this.enabled = !!res.enabled;
+      if (!this.enabled) this.locked = false;
+      this.updateUI();
+    } catch (e) {
+      // ignore errors
+    }
+  },
+  updateUI() {
+    const btn = document.getElementById("btn-monitor");
+    btn.classList.toggle("active", this.enabled);
+    btn.classList.toggle("locked", this.locked);
   },
   setValue(enabled) {
     this.enabled = enabled;
-    const btn = document.getElementById("btn-monitor");
-    if (enabled) {
-      btn.classList.add("active");
-    } else {
-      btn.classList.remove("active");
-    }
+    if (!enabled) this.locked = false;
+    this.updateUI();
   }
 };
 
@@ -461,6 +499,8 @@ const ConfigForm = {
     this._lastMetadata = { artist: metadata.artist || "", track: metadata.track || "" };
     document.getElementById("cfg-az-station").value = az.station_id || "";
     document.getElementById("cfg-az-token").value = az.access_token || "";
+  const webradio = cfg.webradio || {};
+  document.getElementById("cfg-webradio-url").value = webradio.url || "";
   // Gain is now loaded from status API, not config
   const input = cfg.input || {};
   LimiterControl.setValue(input.limiter_enabled || false);
@@ -502,7 +542,8 @@ const ConfigForm = {
       "cfg-artist",
       "cfg-title",
       "cfg-az-station",
-      "cfg-az-token"
+      "cfg-az-token",
+      "cfg-webradio-url"
     ];
     fields.forEach(id => {
       const el = document.getElementById(id);
@@ -558,6 +599,9 @@ const ConfigForm = {
       azuracast: {
         station_id: parseInt(document.getElementById("cfg-az-station").value) || 0,
         access_token: document.getElementById("cfg-az-token").value
+      },
+      webradio: {
+        url: document.getElementById("cfg-webradio-url").value
       }
     };
     try {
@@ -566,6 +610,7 @@ const ConfigForm = {
         AppState.config.stream = { ...(AppState.config.stream || {}), ...payload.stream };
         AppState.config.metadata = { ...(AppState.config.metadata || {}), ...payload.metadata };
         AppState.config.azuracast = { ...(AppState.config.azuracast || {}), ...payload.azuracast };
+        AppState.config.webradio = { ...(AppState.config.webradio || {}), ...payload.webradio };
       }
       if (metadataChanged) {
         const artist = nextMetadata.artist.trim();
@@ -658,6 +703,15 @@ const StatusUpdater = {
       }
       if (s.device && typeof s.device.monitor_enabled === "boolean") {
         MonitorControl.setValue(s.device.monitor_enabled);
+      }
+      // Webradio indicator
+      const radioInd = document.getElementById("radio-indicator");
+      if (radioInd) {
+        if (s.webradio && s.webradio.playing) {
+          radioInd.classList.remove("hidden");
+        } else {
+          radioInd.classList.add("hidden");
+        }
       }
       if (s.device) {
         const meters = document.querySelector(".meters");

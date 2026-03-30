@@ -50,6 +50,9 @@
           <div class="divider"></div>
           <h4>AzuraCast</h4>
           <div class="form-row"><label class="lbl">Station</label><input type="number" id="cfg-az-station" class="inp inp-sm" placeholder="ID"><label class="lbl">Token</label><input type="password" id="cfg-az-token" class="inp"></div>
+          <div class="divider"></div>
+          <h4>Web Radio</h4>
+          <div class="form-row"><label class="lbl">Stream URL</label><input type="text" id="cfg-webradio-url" class="inp" placeholder="https://stream.example.com/radio"></div>
           <button id="btn-connect" class="btn btn-success btn-sm btn-block">Connect</button>
         </div>
         <div class="card card-audio">
@@ -62,7 +65,8 @@
               <div class="meter-row"><span>L</span><div class="meter"><div class="meter-bg"></div><div class="meter-mask" id="meter-left"></div><div class="meter-peak" id="peak-left"></div></div><span class="db" id="db-left">-inf</span></div>
               <div class="meter-row"><span>R</span><div class="meter"><div class="meter-bg"></div><div class="meter-mask" id="meter-right"></div><div class="meter-peak" id="peak-right"></div></div><span class="db" id="db-right">-inf</span></div>
             </div>
-            <button class="monitor-btn" id="btn-monitor" title="Monitor audio">🎧</button>
+            <button class="monitor-btn" id="btn-monitor" title="Monitor audio (hold to monitor, double-click to lock)">🎧</button>
+            <span class="radio-ind hidden" id="radio-indicator">📻</span>
           </div>
           <div class="divider"></div>
           <div class="dev-row"><select id="device-select" class="inp dev-sel"><option>Loading...</option></select><button id="btn-refresh-devices" class="btn btn-secondary btn-sm">Refresh</button></div>

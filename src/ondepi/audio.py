@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from threading import Event, Lock, Thread
 import time
@@ -7,6 +8,8 @@ from typing import Callable, Optional
 
 import numpy as np
 import sounddevice as sd
+
+logger = logging.getLogger(__name__)
 
 from .config import InputConfig
 from .state import LevelState, StreamState
@@ -260,12 +263,14 @@ class AudioEngine:
                 self._state.last_error = None
                 self._device_status = "connected"
                 self._last_device_error = None
+                logger.info("Audio device '%s' connected (%d ch, %d Hz)", self._input_cfg.alsa_device, channels, self._input_cfg.sample_rate)
                 while self._running.is_set() and stream.active:
                     time.sleep(0.5)
             except Exception as exc:  # pragma: no cover - runtime only
                 self._state.last_error = f"audio device error: {exc}"
                 self._device_status = "error"
                 self._last_device_error = str(exc)
+                logger.warning("Audio device error: %s", exc)
                 self._state.levels = LevelState()
                 self._state.input_clip = False
             finally:
@@ -279,6 +284,7 @@ class AudioEngine:
                         pass
             if self._running.is_set():
                 self._device_status = "reconnecting"
+                logger.info("Audio device disconnected, reconnecting...")
                 time.sleep(2)
 
     def _on_finished(self) -> None:

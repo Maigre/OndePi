@@ -11,6 +11,7 @@ from .state import StreamState
 from .audio import AudioEngine
 from .streamer import Streamer
 from .uplink import UplinkChecker
+from .webradio import WebradioPlayer
 import sounddevice as sd
 import numpy as np
 from .config import save_config, validate_config, validation_errors, validation_issues
@@ -25,6 +26,7 @@ class ApiService:
         audio_engine: AudioEngine | None = None,
         config_path: str | None = None,
         uplink_checker: UplinkChecker | None = None,
+        webradio_player: WebradioPlayer | None = None,
     ) -> None:
         self._config = config
         self._state = state
@@ -32,6 +34,7 @@ class ApiService:
         self._audio_engine = audio_engine
         self._config_path = config_path
         self._uplink_checker = uplink_checker
+        self._webradio = webradio_player
         self._audio_monitor_stop = False
         self._audio_monitor_thread = None
         self.app = FastAPI(title="OndePi")
@@ -47,6 +50,7 @@ class ApiService:
                 "state": self._state.as_dict(),
                 "stream": self._streamer.status(),
                 "device": self._audio_engine.device_status() if self._audio_engine else None,
+                "webradio": self._webradio.status() if self._webradio else None,
                 "config": {
                     "valid": len(errors) == 0,
                     "errors": errors,
@@ -161,6 +165,15 @@ class ApiService:
                 self._audio_engine.update_input(updated.input)
             if self._uplink_checker:
                 self._uplink_checker.update_config(updated.stream)
+            if self._webradio:
+                old_url = self._webradio.url
+                self._webradio.update_device(
+                    updated.input.alsa_device or None,
+                    updated.input.sample_rate,
+                    updated.input.channels,
+                )
+                if updated.webradio.url != old_url:
+                    self._webradio.update_url(updated.webradio.url)
             return {"ok": True}
 
         @app.patch("/api/config")
@@ -181,6 +194,15 @@ class ApiService:
                 self._audio_engine.update_input(updated.input)
             if self._uplink_checker:
                 self._uplink_checker.update_config(updated.stream)
+            if self._webradio:
+                old_url = self._webradio.url
+                self._webradio.update_device(
+                    updated.input.alsa_device or None,
+                    updated.input.sample_rate,
+                    updated.input.channels,
+                )
+                if updated.webradio.url != old_url:
+                    self._webradio.update_url(updated.webradio.url)
             return {"ok": True}
 
         @app.post("/api/gain")
@@ -195,8 +217,18 @@ class ApiService:
         def set_monitor(payload: dict) -> dict:
             enabled = payload.get("enabled", False)
             actual = False
-            if self._audio_engine:
-                actual = self._audio_engine.set_monitor(enabled)
+            if enabled:
+                # Stop webradio, enable monitoring
+                if self._webradio:
+                    self._webradio.stop()
+                if self._audio_engine:
+                    actual = self._audio_engine.set_monitor(True)
+            else:
+                # Disable monitoring, start webradio
+                if self._audio_engine:
+                    self._audio_engine.set_monitor(False)
+                if self._webradio and self._config.webradio.url:
+                    self._webradio.start()
             return {"ok": True, "enabled": actual}
 
         app.mount("/", StaticFiles(directory="web", html=True), name="web")
@@ -205,7 +237,9 @@ class ApiService:
         def startup() -> None:
             if self._audio_engine:
                 self._audio_engine.start()
-                self._audio_engine.set_monitor(True)
+            # Start webradio if URL configured (monitoring off by default)
+            if self._webradio and self._config.webradio.url:
+                self._webradio.start()
             if not self._audio_monitor_thread:
                 self._audio_monitor_stop = False
                 self._audio_monitor_thread = threading.Thread(
@@ -219,6 +253,8 @@ class ApiService:
             self._audio_monitor_stop = True
             if self._audio_monitor_thread:
                 self._audio_monitor_thread.join(timeout=2.0)
+            if self._webradio:
+                self._webradio.stop()
             if self._audio_engine:
                 self._audio_engine.stop()
 
