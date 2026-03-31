@@ -359,14 +359,14 @@ const DeviceSelector = {
 };
 
 const StreamControls = {
-  state: "stopped", // stopped, connecting, streaming
+  state: "stopped", // stopped, connecting, streaming, error
   init() {
     document.getElementById("btn-connect").addEventListener("click", () => this.toggle());
   },
   async toggle() {
     if (this.state === "streaming") {
       await this.stop();
-    } else if (this.state === "stopped") {
+    } else if (this.state === "stopped" || this.state === "error") {
       await this.connect();
     }
   },
@@ -422,8 +422,8 @@ const StreamControls = {
     const dot = document.getElementById("stream-status-dot");
     const text = document.getElementById("stream-status-text");
     
-    dot.classList.remove("streaming", "connecting");
-    btn.classList.remove("btn-success", "btn-danger", "btn-warn");
+    dot.classList.remove("streaming", "connecting", "error");
+    btn.classList.remove("btn-success", "btn-danger", "btn-warn", "btn-error");
     
     if (state === "streaming") {
       dot.classList.add("streaming");
@@ -435,15 +435,22 @@ const StreamControls = {
       text.textContent = "Connecting...";
       btn.textContent = "Connecting...";
       btn.classList.add("btn-warn");
+    } else if (state === "error") {
+      dot.classList.add("error");
+      text.textContent = "Error";
+      btn.textContent = "Retry";
+      btn.classList.add("btn-error");
     } else {
       text.textContent = "Stopped";
       btn.textContent = "Connect";
       btn.classList.add("btn-success");
     }
   },
-  update(streaming) {
+  update(streaming, streamingRequested, lastError) {
     if (streaming && this.state !== "streaming") {
       this.setState("streaming");
+    } else if (!streaming && streamingRequested && lastError) {
+      this.setState("error");
     } else if (!streaming && this.state === "streaming") {
       this.setState("stopped");
     } else if (!streaming && this.state === "connecting") {
@@ -630,7 +637,7 @@ const StatusUpdater = {
           }
         }
       }
-      StreamControls.update(state.streaming || false);
+      StreamControls.update(state.streaming || false, state.streaming_requested || false, state.last_error);
   AppState.streaming = !!state.streaming;
       if (s.device) {
         const btn = document.getElementById("btn-connect");

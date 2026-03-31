@@ -151,6 +151,28 @@ class WebradioPlayer:
         max_consecutive_errors = 5
 
         while self._running.is_set():
+            # Detect silently-dead output stream (e.g. USB bus disruption)
+            if not output_stream.active:
+                logger.warning("Output stream became inactive, recreating")
+                try:
+                    output_stream.stop()
+                    output_stream.close()
+                except Exception:
+                    pass
+                try:
+                    output_stream = sd.OutputStream(
+                        samplerate=self._sample_rate,
+                        channels=self._channels,
+                        dtype="float32",
+                        device=self._device,
+                    )
+                    output_stream.start()
+                    self._output_stream = output_stream
+                    logger.info("Output stream recreated successfully")
+                except Exception:
+                    logger.warning("Failed to recreate output stream, restarting playback")
+                    break
+
             data = stdout.read(chunk_bytes)
             if not data:
                 break
