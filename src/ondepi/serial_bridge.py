@@ -13,6 +13,8 @@ import time
 from datetime import datetime
 from typing import Optional
 
+import sounddevice as sd
+
 from .audio import AudioEngine
 from .config import SerialConfig
 from .serial_device import SerialDevice
@@ -92,19 +94,58 @@ class SerialBridge:
     def _on_serial_connect(self) -> None:
         """Called when the M5Stack serial port reconnects.
 
-        USB re-enumeration can silently corrupt PortAudio/ALSA streams,
-        so we proactively restart audio output streams.
+        USB re-enumeration corrupts PortAudio/ALSA device state.
+        The only reliable fix is a full PortAudio reinit, which
+        requires stopping all audio streams first.
         """
         self._connect_count += 1
         if self._connect_count <= 1:
             # First connect at startup — no need to restart audio
             return
-        logger.info("M5Stack reconnected — restarting audio output streams")
+        logger.info("M5Stack reconnected — restarting audio subsystem")
+        threading.Thread(
+            target=self._restart_audio_subsystem,
+            daemon=True,
+            name="audio-restart",
+        ).start()
+
+    def _restart_audio_subsystem(self) -> None:
+        """Full audio restart: stop all → reinit PortAudio → restart all."""
+        webradio_was_playing = (
+            self._webradio_player is not None and self._webradio_player.playing
+        )
+        monitor_was_enabled = (
+            self._audio_engine is not None and self._audio_engine._monitor_enabled
+        )
+
+        # 1. Stop all audio streams
         if self._webradio_player:
-            self._webradio_player.restart_output()
-        if self._audio_engine and self._audio_engine._monitor_enabled:
-            self._audio_engine.set_monitor(False)
-            self._audio_engine.set_monitor(True)
+            self._webradio_player.stop()
+        if self._audio_engine:
+            self._audio_engine.stop()
+
+        # 2. Let USB settle
+        time.sleep(0.5)
+
+        # 3. Reset PortAudio device cache
+        try:
+            sd._lib.Pa_Terminate()
+            sd._lib.Pa_Initialize()
+            logger.info("PortAudio reinitialized")
+        except Exception as exc:
+            logger.warning("PortAudio reinit failed: %s", exc)
+
+        # 4. Restart audio engine (input capture → Icecast)
+        if self._audio_engine:
+            self._audio_engine.start()
+            if monitor_was_enabled:
+                self._audio_engine.set_monitor(True)
+
+        # 5. Restart webradio
+        if webradio_was_playing and self._webradio_player:
+            self._webradio_player.start()
+
+        logger.info("Audio subsystem restart complete")
 
     def _on_message(self, message: dict) -> None:
         """Handle a parsed JSON message from M5Stack."""
