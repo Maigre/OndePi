@@ -8,8 +8,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+User=root
+Group=root
 SupplementaryGroups=dialout audio
 ExecStart=/usr/local/bin/ondepi
+WorkingDirectory=/opt/OndePi
 
 Restart=always
 RestartSec=10
