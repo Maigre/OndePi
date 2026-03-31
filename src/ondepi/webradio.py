@@ -99,7 +99,7 @@ class WebradioPlayer:
                 self._cleanup()
             if self._running.is_set():
                 self._retry_count += 1
-                delay = min(3 * (2 ** min(self._retry_count - 1, 4)), 30)
+                delay = min(1 * (2 ** min(self._retry_count - 1, 4)), 30)
                 logger.info("Webradio retry #%d in %ds", self._retry_count, delay)
                 end = time.monotonic() + delay
                 while self._running.is_set() and time.monotonic() < end:
@@ -147,6 +147,9 @@ class WebradioPlayer:
         if not stdout:
             return
 
+        consecutive_errors = 0
+        max_consecutive_errors = 5
+
         while self._running.is_set():
             data = stdout.read(chunk_bytes)
             if not data:
@@ -157,8 +160,33 @@ class WebradioPlayer:
                 frames = samples[:usable].reshape(-1, self._channels)
                 try:
                     output_stream.write(frames)
-                except Exception:
-                    break
+                    consecutive_errors = 0
+                except Exception as exc:
+                    consecutive_errors += 1
+                    if consecutive_errors == 1:
+                        logger.warning("Audio write error (transient): %s", exc)
+                    if consecutive_errors >= max_consecutive_errors:
+                        # Try to recreate the output stream once before giving up
+                        logger.warning("Sustained audio errors (%d), recreating output stream", consecutive_errors)
+                        try:
+                            output_stream.stop()
+                            output_stream.close()
+                        except Exception:
+                            pass
+                        try:
+                            output_stream = sd.OutputStream(
+                                samplerate=self._sample_rate,
+                                channels=self._channels,
+                                dtype="float32",
+                                device=self._device,
+                            )
+                            output_stream.start()
+                            self._output_stream = output_stream
+                            consecutive_errors = 0
+                            logger.info("Output stream recreated successfully")
+                        except Exception:
+                            logger.warning("Failed to recreate output stream, restarting playback")
+                            break
 
     def _cleanup(self) -> None:
         if self._output_stream:

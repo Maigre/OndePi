@@ -222,6 +222,8 @@ class Streamer:
             try:
                 stdin.write(chunk.astype("float32").tobytes())
             except Exception:
+                if self._state.last_error != "Audio pipeline broken":
+                    logger.warning("Audio consumer write failed (ffmpeg stdin broken)")
                 self._state.last_error = "Audio pipeline broken"
 
         return _consumer
