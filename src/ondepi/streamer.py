@@ -4,6 +4,7 @@ import logging
 import subprocess
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, List, Optional
@@ -155,7 +156,6 @@ class Streamer:
             stdin=subprocess.PIPE if self._audio_engine else None,
         )
         self._process = StreamProcess(command=command, process=process)
-        self._state.streaming = True
         self._state.started_at = datetime.utcnow()
         if not is_retry:
             self._state.last_error = None
@@ -174,14 +174,59 @@ class Streamer:
         if not self._process:
             return
         process = self._process.process
-        process.wait()
-        exit_code = process.returncode
-        stderr = ""
-        if process.stderr:
+
+        # Collect stderr lines in real-time so we can detect connection
+        # failures even when ffmpeg doesn't exit (piped stdin keeps it alive).
+        stderr_lines: deque[str] = deque(maxlen=50)
+        stderr_error = threading.Event()
+
+        def _read_stderr() -> None:
+            assert process.stderr is not None
             try:
-                stderr = process.stderr.read().decode("utf-8", errors="ignore").strip()
+                for raw in process.stderr:
+                    line = raw.decode("utf-8", errors="ignore").rstrip()
+                    if line:
+                        stderr_lines.append(line)
+                        logger.debug("ffmpeg: %s", line)
+                        low = line.lower()
+                        if any(kw in low for kw in (
+                            "error", "401", "403", "refused",
+                            "unauthorized", "fail", "denied",
+                        )):
+                            stderr_error.set()
             except Exception:
-                stderr = ""
+                pass
+
+        reader = threading.Thread(target=_read_stderr, daemon=True)
+        reader.start()
+
+        # Grace period: wait for either process exit or stderr error signal.
+        grace = 5.0
+        deadline = time.monotonic() + grace
+        connected = True
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                connected = False
+                break
+            if stderr_error.is_set():
+                # ffmpeg reported an error — kill it since it won't exit on its own
+                logger.warning("ffmpeg output error detected, terminating")
+                connected = False
+                try:
+                    process.terminate()
+                except Exception:
+                    pass
+                break
+            time.sleep(0.25)
+
+        if connected:
+            self._state.streaming = True
+
+        process.wait()
+        reader.join(timeout=2.0)
+
+        exit_code = process.returncode
+        stderr = "\n".join(stderr_lines)
         self._last_stderr = stderr or None
         self._cleanup_audio()
         self._process = None
