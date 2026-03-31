@@ -8,19 +8,17 @@ application components.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from datetime import datetime
 from typing import Optional
-
-import sounddevice as sd
 
 from .audio import AudioEngine
 from .config import SerialConfig
 from .serial_device import SerialDevice
 from .state import StreamState
 from .streamer import Streamer
-from .webradio import WebradioPlayer
 
 logger = logging.getLogger(__name__)
 
@@ -48,12 +46,10 @@ class SerialBridge:
         state: StreamState,
         streamer: Streamer,
         audio_engine: Optional[AudioEngine] = None,
-        webradio_player: Optional[WebradioPlayer] = None,
     ) -> None:
         self._state = state
         self._streamer = streamer
         self._audio_engine = audio_engine
-        self._webradio_player = webradio_player
         self._device = SerialDevice(config, self._on_message, on_connect=self._on_serial_connect)
         self._sender_thread: Optional[threading.Thread] = None
         self._running = False
@@ -94,58 +90,21 @@ class SerialBridge:
     def _on_serial_connect(self) -> None:
         """Called when the M5Stack serial port reconnects.
 
-        USB re-enumeration corrupts PortAudio/ALSA device state.
-        The only reliable fix is a full PortAudio reinit, which
-        requires stopping all audio streams first.
+        USB re-enumeration corrupts PortAudio/ALSA device state beyond
+        repair (snd_pcm_drop on dead handles → heap corruption → SIGABRT).
+        The only safe recovery is to exit and let systemd restart us.
         """
         self._connect_count += 1
         if self._connect_count <= 1:
-            # First connect at startup — no need to restart audio
+            # First connect at startup — no need to restart
             return
-        logger.info("M5Stack reconnected — restarting audio subsystem")
-        threading.Thread(
-            target=self._restart_audio_subsystem,
-            daemon=True,
-            name="audio-restart",
-        ).start()
-
-    def _restart_audio_subsystem(self) -> None:
-        """Full audio restart: stop all → reinit PortAudio → restart all."""
-        webradio_was_playing = (
-            self._webradio_player is not None and self._webradio_player.playing
+        logger.warning(
+            "M5Stack reconnected — USB audio likely corrupted, "
+            "exiting for systemd restart"
         )
-        monitor_was_enabled = (
-            self._audio_engine is not None and self._audio_engine._monitor_enabled
-        )
-
-        # 1. Stop all audio streams
-        if self._webradio_player:
-            self._webradio_player.stop()
-        if self._audio_engine:
-            self._audio_engine.stop()
-
-        # 2. Let USB settle
-        time.sleep(0.5)
-
-        # 3. Reset PortAudio device cache
-        try:
-            sd._lib.Pa_Terminate()
-            sd._lib.Pa_Initialize()
-            logger.info("PortAudio reinitialized")
-        except Exception as exc:
-            logger.warning("PortAudio reinit failed: %s", exc)
-
-        # 4. Restart audio engine (input capture → Icecast)
-        if self._audio_engine:
-            self._audio_engine.start()
-            if monitor_was_enabled:
-                self._audio_engine.set_monitor(True)
-
-        # 5. Restart webradio
-        if webradio_was_playing and self._webradio_player:
-            self._webradio_player.start()
-
-        logger.info("Audio subsystem restart complete")
+        # Brief delay for USB to settle before systemd restarts us
+        time.sleep(1.0)
+        os._exit(0)
 
     def _on_message(self, message: dict) -> None:
         """Handle a parsed JSON message from M5Stack."""

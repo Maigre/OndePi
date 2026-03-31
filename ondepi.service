@@ -15,7 +15,7 @@ ExecStart=/usr/local/bin/ondepi
 WorkingDirectory=/opt/OndePi
 
 Restart=always
-RestartSec=10
+RestartSec=2
 
 Nice=-5
 LimitNOFILE=65536
