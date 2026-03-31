@@ -716,13 +716,18 @@ const StatusUpdater = {
         if (!this.errorDismissed || state.last_error !== this.lastError) {
           this.setError(state.last_error);
         }
+        const retryCount = state.retry_count || 0;
+        const stderrKey = (s.stream?.last_stderr || "") + "|" + retryCount;
         if (s.stream && s.stream.last_error && s.stream.last_error !== this.lastStreamError) {
           Logs.add("Stream error: " + s.stream.last_error, "error");
           this.lastStreamError = s.stream.last_error;
         }
-        if (s.stream && s.stream.last_stderr && s.stream.last_stderr !== this.lastStreamStderr) {
-          Logs.add("FFmpeg stderr: " + s.stream.last_stderr, "error");
-          this.lastStreamStderr = s.stream.last_stderr;
+        if (s.stream && s.stream.last_stderr && stderrKey !== this.lastStreamStderr) {
+          this.lastStreamStderr = stderrKey;
+          const lines = s.stream.last_stderr.split("\n");
+          for (const line of lines) {
+            if (line.trim()) Logs.add("ffmpeg: " + line.trim(), "warn");
+          }
         }
       } else {
         this.clearError(true);
