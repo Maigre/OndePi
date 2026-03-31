@@ -33,6 +33,7 @@ struct AudioLevels {
 
 struct StreamStatus {
     bool streaming = false;
+    bool streamingRequested = false;
     bool connected = false;
     bool uplinkOk = false;
     bool uplinkChecked = false;

@@ -181,6 +181,7 @@ class SerialBridge:
         self._device.send({
             "type": "status",
             "streaming": self._state.streaming,
+            "streaming_requested": self._state.streaming_requested,
             "duration": duration,
             "error": error,
             "uplink_ok": self._state.uplink_ok,

@@ -53,17 +53,19 @@ public:
     void updateStatus(AppState& state) {
         // Only redraw if something changed
         bool streamingChanged = (state.status.streaming != _lastStreaming);
+        bool requestedChanged = (state.status.streamingRequested != _lastStreamingRequested);
         bool durationChanged = (state.status.duration != _lastDuration);
         bool errorChanged = (state.status.error != _lastError);
         bool pendingChanged = (state.pendingAction != _lastPendingAction);
         bool uplinkChanged = (state.status.uplinkChecked != _lastUplinkChecked)
                           || (state.status.uplinkOk != _lastUplinkOk);
         
-        if (!streamingChanged && !durationChanged && !errorChanged && !pendingChanged && !uplinkChanged) {
+        if (!streamingChanged && !requestedChanged && !durationChanged && !errorChanged && !pendingChanged && !uplinkChanged) {
             return;  // Nothing changed, skip redraw
         }
         
         _lastStreaming = state.status.streaming;
+        _lastStreamingRequested = state.status.streamingRequested;
         _lastDuration = state.status.duration;
         _lastError = state.status.error;
         _lastPendingAction = state.pendingAction;
@@ -112,8 +114,9 @@ public:
     }
     
     void updateErrorMessage(AppState& state) {
-        // Auto-clear expired errors and remember them so server re-sends are ignored
-        if (!state.status.error.isEmpty() && state.status.errorReceivedAt > 0) {
+        // Auto-clear expired errors — but keep showing while streaming is requested
+        if (!state.status.error.isEmpty() && state.status.errorReceivedAt > 0
+            && !state.status.streamingRequested) {
             if (millis() - state.status.errorReceivedAt > ERROR_TIMEOUT_MS) {
                 state.status.dismissedError = state.status.error;
                 state.status.error = "";
@@ -140,6 +143,7 @@ private:
     bool _lastClipping = false;
     bool _lastLimiting = false;
     bool _lastStreaming = false;
+    bool _lastStreamingRequested = false;
     bool _lastUplinkOk = false;
     bool _lastUplinkChecked = false;
     unsigned long _lastDuration = 0;
@@ -184,12 +188,16 @@ private:
             statusText = "STARTING";
         } else if (state.pendingAction == PENDING_STOP) {
             statusText = "STOPPING";
+        } else if (!state.status.streaming && state.status.streamingRequested && !state.status.error.isEmpty()) {
+            statusText = "ERROR";
         } else {
             statusText = state.status.streaming ? "STREAMING" : "STOPPED";
         }
         uint16_t dotColor = COLOR_STOPPED;
         if (state.pendingAction != PENDING_NONE) {
             dotColor = COLOR_METER_MID;
+        } else if (!state.status.streaming && state.status.streamingRequested && !state.status.error.isEmpty()) {
+            dotColor = COLOR_ERROR;
         } else if (state.status.streaming) {
             dotColor = COLOR_STREAMING;
         }

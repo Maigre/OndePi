@@ -802,6 +802,8 @@ const Logs = {
     const c = document.getElementById("log-container");
     const e = document.createElement("div");
     e.textContent = "[" + new Date().toLocaleTimeString() + "] " + msg;
+    if (level === "error") e.classList.add("log-error");
+    else if (level === "warn") e.classList.add("log-warn");
     c.appendChild(e);
     c.scrollTop = c.scrollHeight;
   },

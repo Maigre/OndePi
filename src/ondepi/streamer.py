@@ -237,9 +237,11 @@ class Streamer:
         if self._stop_requested:
             return
 
-        message = f"ffmpeg exited with code {exit_code}"
+        message = _parse_ffmpeg_error(exit_code, stderr)
+        logger.error("Stream failed: %s", message)
         if stderr:
-            message = f"{message}: {stderr.splitlines()[-1]}"
+            for line in stderr.splitlines():
+                logger.debug("  ffmpeg: %s", line)
         self._state.last_error = message
 
         if not self._config.general.reconnect:
@@ -282,6 +284,32 @@ class Streamer:
                 self._process.process.stdin.close()
             except Exception:
                 pass
+
+
+def _parse_ffmpeg_error(exit_code: int, stderr: str) -> str:
+    """Extract a human-readable error from ffmpeg stderr output."""
+    low = stderr.lower() if stderr else ""
+    if "401" in low or "unauthorized" in low:
+        return "Icecast authentication failed (401) — check username/password"
+    if "403" in low or "forbidden" in low:
+        return "Icecast access denied (403) — check mount permissions"
+    if "404" in low or "not found" in low:
+        return "Icecast mount not found (404) — check mount point"
+    if "connection refused" in low or "refused" in low:
+        return "Connection refused — is the Icecast server running?"
+    if "no route" in low or "network is unreachable" in low:
+        return "Network unreachable — check internet connection"
+    if "name or service not known" in low or "resolve" in low:
+        return "DNS lookup failed — check server hostname"
+    if "connection timed out" in low or "timed out" in low:
+        return "Connection timed out — check server address and port"
+    if "already connected" in low or "mount" in low and "in use" in low:
+        return "Mount point already in use — another source is connected"
+    if stderr:
+        last_line = stderr.splitlines()[-1].strip()
+        if last_line:
+            return last_line
+    return f"Stream failed (ffmpeg exit code {exit_code})"
 
 
 def _codec_for_format(fmt: str) -> str:

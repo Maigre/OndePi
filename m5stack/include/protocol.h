@@ -119,6 +119,7 @@ private:
     void handleStatus(JsonDocument& doc, AppState& state) {
         bool wasStreaming = state.status.streaming;
         bool newStreaming = doc["streaming"] | false;
+        bool newStreamingRequested = doc["streaming_requested"] | false;
         
         // Handle duration from server
         unsigned long newDuration = state.status.duration;
@@ -153,6 +154,7 @@ private:
         }
 
         state.status.streaming = newStreaming;
+        state.status.streamingRequested = newStreamingRequested;
         state.status.connected = true;
         state.status.duration = newDuration;
         state.status.error = newError;
