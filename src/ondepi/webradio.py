@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import time
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 from typing import Optional
 
 import numpy as np
@@ -30,6 +30,7 @@ class WebradioPlayer:
         self._output_stream: Optional[sd.OutputStream] = None
         self._thread: Optional[Thread] = None
         self._running = Event()
+        self._restart_requested = Event()
         self._retry_count = 0
         self._last_error: Optional[str] = None
 
@@ -53,6 +54,16 @@ class WebradioPlayer:
         self._device = device
         self._sample_rate = sample_rate
         self._channels = channels
+
+    def restart_output(self) -> None:
+        """Signal the play loop to recreate the output stream.
+
+        Call this after a USB bus event (e.g. M5Stack reconnect) which may
+        silently corrupt the PortAudio/ALSA playback stream.
+        """
+        if self._running.is_set():
+            logger.info("Webradio output restart requested (USB event)")
+            self._restart_requested.set()
 
     def start(self) -> None:
         if self._running.is_set() or not self._url:
@@ -151,9 +162,11 @@ class WebradioPlayer:
         max_consecutive_errors = 5
 
         while self._running.is_set():
-            # Detect silently-dead output stream (e.g. USB bus disruption)
-            if not output_stream.active:
-                logger.warning("Output stream became inactive, recreating")
+            # Check if a USB event requires us to recreate the output stream
+            if self._restart_requested.is_set() or not output_stream.active:
+                reason = "USB event" if self._restart_requested.is_set() else "stream inactive"
+                self._restart_requested.clear()
+                logger.warning("Recreating output stream (%s)", reason)
                 try:
                     output_stream.stop()
                     output_stream.close()
@@ -168,6 +181,7 @@ class WebradioPlayer:
                     )
                     output_stream.start()
                     self._output_stream = output_stream
+                    consecutive_errors = 0
                     logger.info("Output stream recreated successfully")
                 except Exception:
                     logger.warning("Failed to recreate output stream, restarting playback")

@@ -48,9 +48,10 @@ class SerialDevice:
     Automatically reconnects if the serial port disappears or errors out.
     """
 
-    def __init__(self, config: SerialConfig, on_message: Callable[[dict], None]) -> None:
+    def __init__(self, config: SerialConfig, on_message: Callable[[dict], None], on_connect: Optional[Callable[[], None]] = None) -> None:
         self._config = config
         self._on_message = on_message
+        self._on_connect = on_connect
         self._thread: Optional[threading.Thread] = None
         self._running = False
         self._serial: Optional[serial.Serial] = None
@@ -147,6 +148,11 @@ class SerialDevice:
                 self._serial = ser
                 self._connected = True
             logger.info("Serial connected: %s", port)
+            if self._on_connect:
+                try:
+                    self._on_connect()
+                except Exception as exc:
+                    logger.warning("on_connect callback error: %s", exc)
             return True
         except (serial.SerialException, OSError) as exc:
             logger.debug("Serial connect failed: %s", exc)

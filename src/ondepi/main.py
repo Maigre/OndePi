@@ -84,6 +84,7 @@ def main() -> None:
         state,
         streamer,
         audio_engine=audio_engine,
+        webradio_player=webradio_player,
     )
     serial_bridge.start()
     uplink_checker.start()

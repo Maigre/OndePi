@@ -18,6 +18,7 @@ from .config import SerialConfig
 from .serial_device import SerialDevice
 from .state import StreamState
 from .streamer import Streamer
+from .webradio import WebradioPlayer
 
 logger = logging.getLogger(__name__)
 
@@ -45,14 +46,17 @@ class SerialBridge:
         state: StreamState,
         streamer: Streamer,
         audio_engine: Optional[AudioEngine] = None,
+        webradio_player: Optional[WebradioPlayer] = None,
     ) -> None:
         self._state = state
         self._streamer = streamer
         self._audio_engine = audio_engine
-        self._device = SerialDevice(config, self._on_message)
+        self._webradio_player = webradio_player
+        self._device = SerialDevice(config, self._on_message, on_connect=self._on_serial_connect)
         self._sender_thread: Optional[threading.Thread] = None
         self._running = False
         self._last_gain_sent: Optional[float] = None
+        self._connect_count = 0
 
     @property
     def connected(self) -> bool:
@@ -84,6 +88,23 @@ class SerialBridge:
     # -------------------------------------------------------------------------
     # Incoming commands from M5Stack
     # -------------------------------------------------------------------------
+
+    def _on_serial_connect(self) -> None:
+        """Called when the M5Stack serial port reconnects.
+
+        USB re-enumeration can silently corrupt PortAudio/ALSA streams,
+        so we proactively restart audio output streams.
+        """
+        self._connect_count += 1
+        if self._connect_count <= 1:
+            # First connect at startup — no need to restart audio
+            return
+        logger.info("M5Stack reconnected — restarting audio output streams")
+        if self._webradio_player:
+            self._webradio_player.restart_output()
+        if self._audio_engine and self._audio_engine._monitor_enabled:
+            self._audio_engine.set_monitor(False)
+            self._audio_engine.set_monitor(True)
 
     def _on_message(self, message: dict) -> None:
         """Handle a parsed JSON message from M5Stack."""
