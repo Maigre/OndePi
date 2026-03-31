@@ -50,3 +50,7 @@ baudrate = 115200
 # API URL is derived from stream server (https://<server>/api)
 station_id = 0
 access_token = ""
+
+[webradio]
+# URL of a web radio stream to play when not monitoring input
+url = ""

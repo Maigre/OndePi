@@ -85,6 +85,11 @@ class AzuraCastConfig:
 
 
 @dataclass
+class WebradioConfig:
+    url: str = ""
+
+
+@dataclass
 class AppConfig:
     general: GeneralConfig
     input: InputConfig
@@ -93,6 +98,7 @@ class AppConfig:
     web: WebConfig
     serial: SerialConfig
     azuracast: AzuraCastConfig
+    webradio: WebradioConfig
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -103,6 +109,7 @@ class AppConfig:
             "web": self.web.__dict__,
             "serial": self.serial.__dict__,
             "azuracast": self.azuracast.__dict__,
+            "webradio": self.webradio.__dict__,
         }
 
     @staticmethod
@@ -115,6 +122,7 @@ class AppConfig:
             web=WebConfig(**_section(data, "web")),
             serial=SerialConfig(**_section(data, "serial")),
             azuracast=AzuraCastConfig(**_section(data, "azuracast")),
+            webradio=WebradioConfig(**_section(data, "webradio")),
         )
 
 

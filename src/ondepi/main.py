@@ -22,6 +22,7 @@ from .serial_bridge import SerialBridge
 from .state import StreamState
 from .streamer import Streamer
 from .uplink import UplinkChecker
+from .webradio import WebradioPlayer
 
 
 class EndpointFilter(logging.Filter):
@@ -63,6 +64,12 @@ def main() -> None:
     audio_engine = AudioEngine(config.input, state)
     streamer = Streamer(config, state, azuracast=azuracast, audio_engine=audio_engine)
     uplink_checker = UplinkChecker(config.stream, state)
+    webradio_player = WebradioPlayer(
+        url=config.webradio.url,
+        sample_rate=config.input.sample_rate,
+        channels=config.input.channels,
+        device=config.input.alsa_device or None,
+    )
     api = ApiService(
         config,
         state,
@@ -70,6 +77,7 @@ def main() -> None:
         audio_engine=audio_engine,
         config_path=str(config_path),
         uplink_checker=uplink_checker,
+        webradio_player=webradio_player,
     )
 
     # Serial bridge to M5Stack
