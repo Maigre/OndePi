@@ -36,9 +36,6 @@ Limiter settings live in `[input]`:
 - `limiter_enabled`: enable soft clip limiter.
 - `limiter_drive`: limiter strength.
 
-### AzuraCast metadata
-If you want OndePi to force the "Now Playing" metadata when the live source starts/stops, enable the `[azuracast]` section in `config.toml`.
-
 ## Quick start
 1. Install dependencies (system packages like `ffmpeg` must be installed separately).
 2. Run the installer:
@@ -57,4 +54,3 @@ Use the optional CLI to check status or start/stop:
 ## Troubleshooting (quick)
 - **No audio levels**: confirm the input device and check the live preview meters.
 - **Stream fails**: verify server/mount/password and check retry count + last error.
-- **Metadata not updating**: enable `[azuracast]` and metadata push settings.

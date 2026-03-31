@@ -32,10 +32,6 @@ name = "Live Source"
 description = "Live input"
 genre = "Live"
 public = false
-artist = "Live Artist"
-track = "Live Broadcast"
-push_enabled = true
-push_interval_seconds = 10
 
 [web]
 bind = "0.0.0.0"
@@ -45,11 +41,6 @@ port = 8090
 # "auto" to auto-detect M5Stack, or explicit path e.g. /dev/ttyUSB0, /dev/ttyACM0
 port = "auto"
 baudrate = 115200
-
-[azuracast]
-# API URL is derived from stream server (https://<server>/api)
-station_id = 0
-access_token = ""
 
 [webradio]
 # URL of a web radio stream to play when not monitoring input

@@ -2,7 +2,7 @@
 
 ## Components
 - **Audio**: capture from ALSA, compute RMS/peak, apply gain.
-- **Streamer**: ffmpeg process to Icecast/AzuraCast live source.
+- **Streamer**: ffmpeg process to Icecast live source.
 - **State**: shared in-memory status (streaming, errors, levels, gain).
 - **API**: FastAPI HTTP endpoints for control and monitoring.
 - **Web UI**: minimal dashboard (dark mode), talks to API.
@@ -15,6 +15,3 @@
 
 ## Control flow
 - Web UI / Serial -> API -> Streamer (start/stop) + State (gain)
-
-## Notes
-- Metadata updates for AzuraCast are a pending item; see `docs/azuracast_metadata.md`.

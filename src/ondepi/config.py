@@ -55,12 +55,6 @@ class MetadataConfig:
     description: str = "OndePi live input"
     genre: str = "Live"
     public: bool = False
-    artist: str = "OndePi"
-    track: str = "Live"
-    push_enabled: bool = True
-    push_interval_seconds: int = 30
-    retry_attempts: int = 2
-    retry_delay_seconds: int = 5
 
 
 @dataclass
@@ -76,15 +70,6 @@ class SerialConfig:
 
 
 @dataclass
-class AzuraCastConfig:
-    station_id: int = 0
-    access_token: str = ""
-    # api_url is derived at runtime from stream.server; kept for backward compat
-    api_url: str = ""
-    enabled: bool = True  # kept for backward compat with saved configs
-
-
-@dataclass
 class WebradioConfig:
     url: str = ""
 
@@ -97,7 +82,6 @@ class AppConfig:
     metadata: MetadataConfig
     web: WebConfig
     serial: SerialConfig
-    azuracast: AzuraCastConfig
     webradio: WebradioConfig
 
     def to_dict(self) -> Dict[str, Any]:
@@ -108,7 +92,6 @@ class AppConfig:
             "metadata": self.metadata.__dict__,
             "web": self.web.__dict__,
             "serial": self.serial.__dict__,
-            "azuracast": self.azuracast.__dict__,
             "webradio": self.webradio.__dict__,
         }
 
@@ -121,7 +104,6 @@ class AppConfig:
             metadata=MetadataConfig(**_section(data, "metadata")),
             web=WebConfig(**_section(data, "web")),
             serial=SerialConfig(**_section(data, "serial")),
-            azuracast=AzuraCastConfig(**_section(data, "azuracast")),
             webradio=WebradioConfig(**_section(data, "webradio")),
         )
 
@@ -183,16 +165,6 @@ def validation_issues(config: AppConfig) -> list[dict[str, str]]:
         issues.append({"field": "stream.mount", "message": "is required"})
     if not (1 <= config.stream.port <= 65535):
         issues.append({"field": "stream.port", "message": "must be 1-65535"})
-    if config.azuracast.station_id and not config.azuracast.access_token:
-        issues.append({"field": "azuracast.access_token", "message": "is required when station_id is set", "level": "warning"})
-    if config.azuracast.access_token and not config.azuracast.station_id:
-        issues.append({"field": "azuracast.station_id", "message": "is required when access_token is set", "level": "warning"})
-    if config.metadata.push_interval_seconds <= 0:
-        issues.append({"field": "metadata.push_interval_seconds", "message": "must be > 0"})
-    if config.metadata.retry_attempts < 0:
-        issues.append({"field": "metadata.retry_attempts", "message": "must be >= 0"})
-    if config.metadata.retry_delay_seconds < 0:
-        issues.append({"field": "metadata.retry_delay_seconds", "message": "must be >= 0"})
     if config.general.retry_initial_delay_seconds < 0:
         issues.append({"field": "general.retry_initial_delay_seconds", "message": "must be >= 0"})
     if config.general.retry_max_delay_seconds < 0:

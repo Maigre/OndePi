@@ -11,11 +11,6 @@
 - Add configurable reconnect delay for audio device.
 - Add optional noise gate or auto-gain control.
 
-## Metadata & AzuraCast
-- Add "Push metadata now" button.
-- Show last successful metadata update time.
-- Add metadata status history and retry counters.
-
 ## Web UI / UX
 - Provide field-level help text and examples.
 - Add diff preview before applying PATCH.

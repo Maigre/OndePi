@@ -9,7 +9,6 @@ import uvicorn
 
 from .api import ApiService
 from .audio import AudioEngine
-from .azuracast import AzuraCastClient
 from .config import (
     DEFAULT_EXAMPLE_PATH,
     DEFAULT_CONFIG_PATH,
@@ -60,9 +59,8 @@ def main() -> None:
         for error in errors:
             print(f"- {error}")
     state = StreamState()
-    azuracast = AzuraCastClient(config.azuracast, stream_config=config.stream)
     audio_engine = AudioEngine(config.input, state)
-    streamer = Streamer(config, state, azuracast=azuracast, audio_engine=audio_engine)
+    streamer = Streamer(config, state, audio_engine=audio_engine)
     uplink_checker = UplinkChecker(config.stream, state)
     webradio_player = WebradioPlayer(
         url=config.webradio.url,

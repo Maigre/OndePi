@@ -155,11 +155,30 @@ private:
     
     void drawHeader(AppState& state) {
         M5.Display.fillRect(0, HEADER_Y, SCREEN_WIDTH, HEADER_HEIGHT, COLOR_HEADER_BG);
+        int centerY = HEADER_Y + HEADER_HEIGHT / 2;
+
+        // Left: OndePi label
         M5.Display.setTextColor(COLOR_TEXT, COLOR_HEADER_BG);
         M5.Display.setTextSize(2);
-        M5.Display.setTextDatum(ML_DATUM);  // Middle-Left
-        M5.Display.drawString("OndePi", 10, HEADER_Y + HEADER_HEIGHT / 2);
+        M5.Display.setTextDatum(ML_DATUM);
+        M5.Display.drawString("OndePi", 10, centerY);
 
+        // Center: uplink indicator (small colored text)
+        M5.Display.setTextSize(1);
+        M5.Display.setTextDatum(MC_DATUM);
+        if (!state.status.uplinkChecked) {
+            M5.Display.setTextColor(COLOR_TEXT_DIM, COLOR_HEADER_BG);
+            M5.Display.drawString("UPLINK", SCREEN_WIDTH / 2, centerY);
+        } else if (state.status.uplinkOk) {
+            M5.Display.setTextColor(COLOR_UPLINK_OK, COLOR_HEADER_BG);
+            M5.Display.drawString("UPLINK", SCREEN_WIDTH / 2, centerY);
+        } else {
+            M5.Display.setTextColor(COLOR_UPLINK_FAIL, COLOR_HEADER_BG);
+            M5.Display.drawString("UPLINK", SCREEN_WIDTH / 2, centerY);
+        }
+
+        // Right: streaming status with dot
+        M5.Display.setTextSize(2);
         String statusText;
         if (state.pendingAction == PENDING_START) {
             statusText = "STARTING";
@@ -175,14 +194,13 @@ private:
             dotColor = COLOR_STREAMING;
         }
 
-        M5.Display.setTextDatum(MR_DATUM);  // Middle-Right
+        M5.Display.setTextDatum(MR_DATUM);
         M5.Display.setTextColor(COLOR_TEXT, COLOR_HEADER_BG);
         int textWidth = M5.Display.textWidth(statusText);
         int textRight = SCREEN_WIDTH - 10;
         int dotX = textRight - textWidth - 12;
-        int dotY = HEADER_Y + HEADER_HEIGHT / 2;
-        M5.Display.fillCircle(dotX, dotY, 5, dotColor);
-        M5.Display.drawString(statusText, textRight, HEADER_Y + HEADER_HEIGHT / 2);
+        M5.Display.fillCircle(dotX, centerY, 5, dotColor);
+        M5.Display.drawString(statusText, textRight, centerY);
     }
     
     // -------------------------------------------------------------------------
@@ -224,32 +242,12 @@ private:
     // -------------------------------------------------------------------------
     
     void drawUplinkIndicator(AppState& state, bool force) {
+        // Uplink is now drawn inside drawHeader(); this method is kept
+        // so existing call-sites don't break but simply triggers a
+        // header repaint when the uplink state changes.
         if (!force && state.status.uplinkOk == _lastUplinkOk
                    && state.status.uplinkChecked == _lastUplinkChecked) return;
-        
-        // Draw in the status area (left side)
-        int dotY = STATUS_Y + STATUS_HEIGHT / 2;
-        
-        M5.Display.setTextSize(1);
-        M5.Display.setTextDatum(ML_DATUM);
-        
-        // Clear the left portion of the status area for the uplink indicator
-        M5.Display.fillRect(0, STATUS_Y, 100, STATUS_HEIGHT, COLOR_BG);
-        
-        if (!state.status.uplinkChecked) {
-            M5.Display.setTextColor(COLOR_TEXT_DIM, COLOR_BG);
-            M5.Display.drawString("UPLINK: --", 10, dotY);
-        } else if (state.status.uplinkOk) {
-            // Green dot + OK
-            M5.Display.fillCircle(15, dotY, 4, COLOR_UPLINK_OK);
-            M5.Display.setTextColor(COLOR_UPLINK_OK, COLOR_BG);
-            M5.Display.drawString("UPLINK", 24, dotY);
-        } else {
-            // Red dot + FAIL
-            M5.Display.fillCircle(15, dotY, 4, COLOR_UPLINK_FAIL);
-            M5.Display.setTextColor(COLOR_UPLINK_FAIL, COLOR_BG);
-            M5.Display.drawString("UPLINK", 24, dotY);
-        }
+        drawHeader(state);
     }
     
     // -------------------------------------------------------------------------

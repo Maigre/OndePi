@@ -89,6 +89,7 @@ h4{font-size:.8rem;color:var(--txt2);margin-bottom:.4rem;font-weight:500}
 .monitor-btn.active{opacity:1;background:var(--accent);border-color:var(--accent)}
 .monitor-btn.locked{opacity:1;background:var(--warn);border-color:var(--warn)}
 .radio-ind{font-size:.9rem;opacity:.7}
+.radio-ind.inactive{opacity:.2;filter:grayscale(1)}
 .audio-ctrl{display:flex;flex-direction:column;gap:.3rem;min-width:120px}
 .gain-row{display:flex;align-items:center;gap:.3rem;font-size:.7rem; max-width: 500px;}
 .gain-row label{color:var(--txt2)}

@@ -33,8 +33,6 @@ name = "OndePi Live"
 description = "Test"
 genre = "Live"
 public = false
-artist = "OndePi"
-track = "Live"
 
 [web]
 bind = "0.0.0.0"
@@ -43,12 +41,6 @@ port = 8090
 [serial]
 port = ""
 baudrate = 115200
-
-[azuracast]
-enabled = false
-api_url = ""
-station_id = 0
-access_token = ""
 """
     path = tmp_path / "config.toml"
     path.write_text(config_text.strip())
@@ -97,8 +89,6 @@ name = "OndePi Live"
 description = "Test"
 genre = "Live"
 public = false
-artist = "OndePi"
-track = "Live"
 
 [web]
 bind = "0.0.0.0"
@@ -107,12 +97,6 @@ port = 8090
 [serial]
 port = ""
 baudrate = 115200
-
-[azuracast]
-enabled = false
-api_url = ""
-station_id = 0
-access_token = ""
 """
     path = tmp_path / "config.toml"
     path.write_text(config_text.strip())

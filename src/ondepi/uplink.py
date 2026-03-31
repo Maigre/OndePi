@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import socket
-import ssl
 import threading
 from typing import Optional
 
@@ -48,22 +47,22 @@ class UplinkChecker:
             self._thread = None
 
     def _check(self) -> bool:
-        """Attempt a TCP connection to the Icecast server."""
+        """Attempt a TCP connection to the Icecast server.
+
+        Only tests raw TCP reachability — FFmpeg's icecast:// output uses
+        plain HTTP, so a TLS handshake here would give false negatives.
+        """
         server = self._config.server
         port = self._config.port
-        use_tls = self._config.tls
 
         if not server:
             return False
 
         try:
             sock = socket.create_connection((server, port), timeout=CONNECT_TIMEOUT)
-            if use_tls:
-                ctx = ssl.create_default_context()
-                sock = ctx.wrap_socket(sock, server_hostname=server)
             sock.close()
             return True
-        except (OSError, ssl.SSLError) as exc:
+        except OSError as exc:
             logger.debug("Uplink check failed: %s", exc)
             return False
 

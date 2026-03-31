@@ -380,11 +380,6 @@ const StreamControls = {
     const base = AppState.config || {};
     const cfg = {
       ...base,
-      metadata: {
-        ...(base.metadata || {}),
-        artist: document.getElementById("cfg-artist").value,
-        track: document.getElementById("cfg-title").value
-      },
       stream: {
         ...(base.stream || {}),
         server: document.getElementById("cfg-host").value,
@@ -397,11 +392,6 @@ const StreamControls = {
         bitrate_kbps: parseInt(document.getElementById("cfg-bitrate").value) || 256,
         bitrate_mode: (base.stream && base.stream.bitrate_mode) || "cbr",
         icy: true
-      },
-      azuracast: {
-        ...(base.azuracast || {}),
-        station_id: parseInt(document.getElementById("cfg-az-station").value) || 0,
-        access_token: document.getElementById("cfg-az-token").value
       }
     };
     try {
@@ -468,7 +458,6 @@ const ConfigForm = {
   _ready: false,
   _saveTimer: null,
   _saveStateTimer: null,
-  _lastMetadata: { artist: null, track: null },
   async load() {
     try {
       const data = await API.get("config");
@@ -486,7 +475,6 @@ const ConfigForm = {
   populate(cfg) {
     const stream = cfg.stream || {};
     const metadata = cfg.metadata || {};
-    const az = cfg.azuracast || {};
     document.getElementById("cfg-host").value = stream.server || "";
     document.getElementById("cfg-port").value = stream.port || "";
     document.getElementById("cfg-mount").value = stream.mount || "";
@@ -494,11 +482,6 @@ const ConfigForm = {
     document.getElementById("cfg-password").value = stream.password || "";
     document.getElementById("cfg-format").value = stream.format || "mp3";
     document.getElementById("cfg-bitrate").value = stream.bitrate_kbps || 256;
-    document.getElementById("cfg-artist").value = metadata.artist || "";
-    document.getElementById("cfg-title").value = metadata.track || "";
-    this._lastMetadata = { artist: metadata.artist || "", track: metadata.track || "" };
-    document.getElementById("cfg-az-station").value = az.station_id || "";
-    document.getElementById("cfg-az-token").value = az.access_token || "";
   const webradio = cfg.webradio || {};
   document.getElementById("cfg-webradio-url").value = webradio.url || "";
   // Gain is now loaded from status API, not config
@@ -519,16 +502,6 @@ const ConfigForm = {
     } else {
       overlay.classList.add("hidden");
     }
-    // AzuraCast warnings (non-blocking)
-    const az = cfg.azuracast || {};
-    if (az.station_id && az.access_token) {
-      // AzuraCast configured — no warning needed
-    } else if (az.station_id || az.access_token) {
-      const missing = [];
-      if (!az.station_id) missing.push("Station ID");
-      if (!az.access_token) missing.push("Access Token");
-      Toast.show("AzuraCast: missing " + missing.join(", "), "error");
-    }
   },
   init() {
     const fields = [
@@ -539,10 +512,6 @@ const ConfigForm = {
       "cfg-password",
       "cfg-format",
       "cfg-bitrate",
-      "cfg-artist",
-      "cfg-title",
-      "cfg-az-station",
-      "cfg-az-token",
       "cfg-webradio-url"
     ];
     fields.forEach(id => {
@@ -572,18 +541,7 @@ const ConfigForm = {
     this._saveTimer = setTimeout(() => this.saveStream(), 250);
   },
   async saveStream() {
-    const nextMetadata = {
-      artist: document.getElementById("cfg-artist").value,
-      track: document.getElementById("cfg-title").value
-    };
-    const metadataChanged =
-      nextMetadata.artist !== (this._lastMetadata.artist || "") ||
-      nextMetadata.track !== (this._lastMetadata.track || "");
     const payload = {
-      metadata: {
-        artist: nextMetadata.artist,
-        track: nextMetadata.track
-      },
       stream: {
         server: document.getElementById("cfg-host").value,
         port: parseInt(document.getElementById("cfg-port").value) || 8000,
@@ -596,10 +554,6 @@ const ConfigForm = {
         bitrate_mode: (AppState.config?.stream && AppState.config.stream.bitrate_mode) || "cbr",
         icy: true
       },
-      azuracast: {
-        station_id: parseInt(document.getElementById("cfg-az-station").value) || 0,
-        access_token: document.getElementById("cfg-az-token").value
-      },
       webradio: {
         url: document.getElementById("cfg-webradio-url").value
       }
@@ -608,19 +562,7 @@ const ConfigForm = {
       await API.patch("config", payload);
       if (AppState.config) {
         AppState.config.stream = { ...(AppState.config.stream || {}), ...payload.stream };
-        AppState.config.metadata = { ...(AppState.config.metadata || {}), ...payload.metadata };
-        AppState.config.azuracast = { ...(AppState.config.azuracast || {}), ...payload.azuracast };
         AppState.config.webradio = { ...(AppState.config.webradio || {}), ...payload.webradio };
-      }
-      if (metadataChanged) {
-        const artist = nextMetadata.artist.trim();
-        const title = nextMetadata.track.trim();
-        const label = artist && title ? `${artist} - ${title}` : (artist || title || "(empty)");
-        Logs.add("Metadata: " + label);
-        this._lastMetadata = { ...nextMetadata };
-        if (AppState.streaming) {
-          Toast.show("Metadata pushed", "success");
-        }
       }
       this.checkSetup(AppState.config || {});
       this.setSaveState("saved");
@@ -707,11 +649,7 @@ const StatusUpdater = {
       // Webradio indicator
       const radioInd = document.getElementById("radio-indicator");
       if (radioInd) {
-        if (s.webradio && s.webradio.playing) {
-          radioInd.classList.remove("hidden");
-        } else {
-          radioInd.classList.add("hidden");
-        }
+        radioInd.classList.toggle("inactive", !(s.webradio && s.webradio.playing));
       }
       if (s.device) {
         const meters = document.querySelector(".meters");

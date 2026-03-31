@@ -36,20 +36,11 @@
           </div>
           <div class="stats"><div><span>Duration</span><span id="stream-duration">--:--:--</span></div><div><span>Retries</span><span id="retry-count">0</span></div><div><span>Dropouts</span><span id="dropout-count">0</span></div><div><span>Uplink</span><span id="uplink-status" class="uplink-ind">--</span></div></div>
           <div class="divider"></div>
-          <h4>Info</h4>
-          <div class="form-row">
-            <label class="lbl">Artist</label><input type="text" id="cfg-artist" class="inp" placeholder="Artist">
-            <label class="lbl">Title</label><input type="text" id="cfg-title" class="inp" placeholder="Title">
-          </div>
-          <div class="divider"></div>
           <h4>Icecast</h4>
           <div class="form-row"><label class="lbl">Host</label><input type="text" id="cfg-host" class="inp" placeholder="stream.example.com"></div>
           <div class="form-row"><label class="lbl">Port</label><input type="number" id="cfg-port" class="inp inp-sm" placeholder="8000"><label class="lbl">Mount</label><input type="text" id="cfg-mount" class="inp" placeholder="/live"></div>
           <div class="form-row"><label class="lbl">User</label><input type="text" id="cfg-user" class="inp" placeholder="source"><label class="lbl">Password</label><input type="password" id="cfg-password" class="inp"></div>
           <div class="form-row"><label class="lbl">Format</label><select id="cfg-format" class="inp inp-sm"><option value="mp3">MP3</option><option value="aac">AAC</option><option value="opus">Opus</option></select><label class="lbl">Bitrate</label><select id="cfg-bitrate" class="inp inp-sm"><option value="128">128k</option><option value="192">192k</option><option value="256" selected>256k</option><option value="320">320k</option></select></div>
-          <div class="divider"></div>
-          <h4>AzuraCast</h4>
-          <div class="form-row"><label class="lbl">Station</label><input type="number" id="cfg-az-station" class="inp inp-sm" placeholder="ID"><label class="lbl">Token</label><input type="password" id="cfg-az-token" class="inp"></div>
           <div class="divider"></div>
           <h4>Web Radio</h4>
           <div class="form-row"><label class="lbl">Stream URL</label><input type="text" id="cfg-webradio-url" class="inp" placeholder="https://stream.example.com/radio"></div>
@@ -66,7 +57,7 @@
               <div class="meter-row"><span>R</span><div class="meter"><div class="meter-bg"></div><div class="meter-mask" id="meter-right"></div><div class="meter-peak" id="peak-right"></div></div><span class="db" id="db-right">-inf</span></div>
             </div>
             <button class="monitor-btn" id="btn-monitor" title="Monitor audio (hold to monitor, double-click to lock)">🎧</button>
-            <span class="radio-ind hidden" id="radio-indicator">📻</span>
+            <span class="radio-ind inactive" id="radio-indicator">📻</span>
           </div>
           <div class="divider"></div>
           <div class="dev-row"><select id="device-select" class="inp dev-sel"><option>Loading...</option></select><button id="btn-refresh-devices" class="btn btn-secondary btn-sm">Refresh</button></div>
