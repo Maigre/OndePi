@@ -36,7 +36,7 @@ class Streamer:
         self._process: Optional[StreamProcess] = None
         self._audio_consumer = None
         self._monitor_thread: Optional[threading.Thread] = None
-        self._stop_requested = False
+        self._stop_event = threading.Event()
         self._last_stderr = None
 
     def build_ffmpeg_command(self) -> List[str]:
@@ -98,33 +98,38 @@ class Streamer:
         return cmd
 
     def start(self) -> None:
-        if self._process is not None:
-            return
-        self._stop_requested = False
+        # Stop any existing retry loop / running process first
+        self._abort_monitor()
+        self._stop_event.clear()
         self._state.streaming_requested = True
         self._state.retry_count = 0
         self._state.last_retry_at = None
         self._state.last_exit_code = None
+        self._state.last_error = None
         self._last_stderr = None
         self._start_process(is_retry=False)
 
     def stop(self) -> None:
-        # Clear these first to prevent auto-restart race conditions
-        self._stop_requested = True
         self._state.streaming_requested = False
+        self._abort_monitor()
 
-        # Capture reference — monitor thread may set self._process = None concurrently
+    def _abort_monitor(self) -> None:
+        """Signal monitor/retry loop to stop and wait for it."""
+        self._stop_event.set()
         proc = self._process
-        if not proc:
-            return
-        self._cleanup_audio()
-        try:
-            proc.process.terminate()
-            proc.process.wait(timeout=5)
-            self._state.last_exit_code = proc.process.returncode
-        except Exception:
-            pass
-        self._process = None
+        if proc:
+            self._cleanup_audio()
+            try:
+                proc.process.terminate()
+                proc.process.wait(timeout=5)
+                self._state.last_exit_code = proc.process.returncode
+            except Exception:
+                pass
+            self._process = None
+        # Wait for monitor thread to exit (it checks _stop_event)
+        if self._monitor_thread and self._monitor_thread.is_alive():
+            self._monitor_thread.join(timeout=5.0)
+        self._monitor_thread = None
         self._state.streaming = False
         self._state.started_at = None
 
@@ -165,8 +170,6 @@ class Streamer:
         self._start_monitor()
 
     def _start_monitor(self) -> None:
-        if self._monitor_thread and self._monitor_thread.is_alive():
-            return
         self._monitor_thread = threading.Thread(target=self._monitor_process, daemon=True)
         self._monitor_thread.start()
 
@@ -205,7 +208,7 @@ class Streamer:
         deadline = time.monotonic() + grace
         connected = True
         while time.monotonic() < deadline:
-            if process.poll() is not None:
+            if self._stop_event.is_set() or process.poll() is not None:
                 connected = False
                 break
             if stderr_error.is_set():
@@ -234,7 +237,7 @@ class Streamer:
         self._state.started_at = None
         self._state.last_exit_code = exit_code
 
-        if self._stop_requested:
+        if self._stop_event.is_set():
             return
 
         message = _parse_ffmpeg_error(exit_code, stderr)
@@ -259,8 +262,8 @@ class Streamer:
             self._config.general.retry_initial_delay_seconds,
             self._config.general.retry_max_delay_seconds,
         )
-        time.sleep(delay)
-        if self._stop_requested:
+        # Interruptible sleep — wakes immediately if stop/restart is requested
+        if self._stop_event.wait(timeout=delay):
             return
         self._start_process(is_retry=True)
 
@@ -269,9 +272,7 @@ class Streamer:
             try:
                 stdin.write(chunk.astype("float32").tobytes())
             except Exception:
-                if self._state.last_error != "Audio pipeline broken":
-                    logger.warning("Audio consumer write failed (ffmpeg stdin broken)")
-                self._state.last_error = "Audio pipeline broken"
+                logger.debug("Audio consumer write failed (ffmpeg stdin closed)")
 
         return _consumer
 

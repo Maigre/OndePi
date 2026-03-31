@@ -190,10 +190,12 @@ class AudioEngine:
 
     def _callback(self, indata, frames, time, status) -> None:  # noqa: ANN001
         if status:
-            self._state.last_error = str(status)
             self._last_stream_status = str(status)
             if getattr(status, "input_overflow", False):
                 self._overflow_count += 1
+                logger.debug("Audio: %s", status)
+            else:
+                logger.warning("Audio: %s", status)
         if indata.size > 0:
             input_peak = float(np.max(np.abs(indata)))
             self._state.input_clip = input_peak >= 0.99
