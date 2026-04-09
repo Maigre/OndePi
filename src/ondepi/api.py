@@ -276,7 +276,7 @@ class ApiService:
             if (connected and 
                 self._state.streaming_requested and 
                 not self._state.streaming and
-                not self._streamer._stop_requested):
+                not self._streamer._stop_event.is_set()):
                 try:
                     self._streamer.start()
                 except Exception as exc:
