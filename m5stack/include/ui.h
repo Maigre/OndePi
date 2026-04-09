@@ -449,7 +449,7 @@ private:
         M5.Display.setTextColor(COLOR_BTN_HINT);
         
         // Button A (left) - Gain down
-        M5.Display.drawString("GAIN -", 53, FOOTER_Y + FOOTER_HEIGHT / 2);
+        M5.Display.drawString("GAIN -", 80, FOOTER_Y + FOOTER_HEIGHT / 2);
         
         // Button B (center) - Start/Stop toggle
         String btnBText;
@@ -461,7 +461,7 @@ private:
         M5.Display.drawString(btnBText, 160, FOOTER_Y + FOOTER_HEIGHT / 2);
         
         // Button C (right) - Gain up
-        M5.Display.drawString("GAIN +", 266, FOOTER_Y + FOOTER_HEIGHT / 2);
+        M5.Display.drawString("GAIN +", 240, FOOTER_Y + FOOTER_HEIGHT / 2);
     }
     
     // -------------------------------------------------------------------------

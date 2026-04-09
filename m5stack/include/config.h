@@ -113,7 +113,7 @@
 #define COLOR_UPLINK_FAIL   TFT_RED
 
 // Button hint colors
-#define COLOR_BTN_HINT      TFT_DARKGREY
+#define COLOR_BTN_HINT      0xDEFB  // Light gray for readability
 
 // Overlay colors
 #define COLOR_OVERLAY_BG    0x2104  // Dark gray, semi-opaque effect

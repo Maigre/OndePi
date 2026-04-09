@@ -12,10 +12,10 @@
 
 class Protocol {
 public:
-    Protocol(HardwareSerial& serial) : _serial(serial) {}
+    Protocol(Stream& serial) : _serial(serial) {}
     
     void begin() {
-        _serial.begin(SERIAL_BAUD);
+        Serial.begin(SERIAL_BAUD);
         _serial.setTimeout(SERIAL_TIMEOUT_MS);
     }
     
@@ -84,7 +84,7 @@ public:
     }
     
 private:
-    HardwareSerial& _serial;
+    Stream& _serial;
     
     void sendJson(JsonDocument& doc) {
         String output;
