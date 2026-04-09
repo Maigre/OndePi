@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import queue
 import subprocess
 import threading
 import time
@@ -36,6 +37,8 @@ class Streamer:
         self._process: Optional[StreamProcess] = None
         self._audio_consumer = None
         self._monitor_thread: Optional[threading.Thread] = None
+        self._writer_thread: Optional[threading.Thread] = None
+        self._audio_queue: Optional[queue.Queue] = None
         self._stop_event = threading.Event()
         self._last_stderr = None
 
@@ -268,12 +271,47 @@ class Streamer:
         self._start_process(is_retry=True)
 
     def _build_audio_consumer(self, stdin) -> Callable:
+        # Use a queue to decouple the real-time audio callback from blocking
+        # pipe I/O.  Writing directly to stdin inside the callback stalls the
+        # audio thread whenever the pipe buffer is momentarily full, producing
+        # audible clicks.
+        max_chunks = max(
+            int(self._config.general.buffer_seconds
+                * self._config.input.sample_rate
+                / 1024),
+            64,
+        )
+        q: queue.Queue = queue.Queue(maxsize=max_chunks)
+        self._audio_queue = q
+
         def _consumer(chunk):
             try:
-                stdin.write(chunk.astype("float32").tobytes())
-            except Exception:
-                logger.debug("Audio consumer write failed (ffmpeg stdin closed)")
+                q.put_nowait(chunk.astype("float32").tobytes())
+            except queue.Full:
+                logger.debug("Audio queue full, dropping chunk")
 
+        def _writer():
+            try:
+                while not self._stop_event.is_set():
+                    try:
+                        data = q.get(timeout=0.5)
+                    except queue.Empty:
+                        continue
+                    try:
+                        stdin.write(data)
+                    except Exception:
+                        logger.debug("ffmpeg stdin write failed")
+                        break
+            finally:
+                # Drain remaining data so ffmpeg gets a clean EOF
+                while not q.empty():
+                    try:
+                        stdin.write(q.get_nowait())
+                    except Exception:
+                        break
+
+        self._writer_thread = threading.Thread(target=_writer, daemon=True)
+        self._writer_thread.start()
         return _consumer
 
     def _cleanup_audio(self) -> None:
@@ -285,6 +323,10 @@ class Streamer:
                 self._process.process.stdin.close()
             except Exception:
                 pass
+        if self._writer_thread and self._writer_thread.is_alive():
+            self._writer_thread.join(timeout=3.0)
+        self._writer_thread = None
+        self._audio_queue = None
 
 
 def _parse_ffmpeg_error(exit_code: int, stderr: str) -> str:

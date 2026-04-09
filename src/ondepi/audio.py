@@ -256,6 +256,8 @@ class AudioEngine:
                     channels=channels,
                     dtype="float32",
                     device=self._input_cfg.alsa_device or None,
+                    blocksize=1024,
+                    latency="high",
                     callback=self._callback,
                     finished_callback=self._on_finished,
                 )
