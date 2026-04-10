@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import queue
 import subprocess
 import threading
 import time
@@ -11,6 +10,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, List, Optional
 from urllib.parse import quote
+
+import numpy as np
 
 from .audio import AudioEngine
 from .config import AppConfig
@@ -23,6 +24,60 @@ logger = logging.getLogger(__name__)
 class StreamProcess:
     command: List[str]
     process: subprocess.Popen
+
+
+class _AudioChunkBuffer:
+    def __init__(self, max_frames: int) -> None:
+        self._max_frames = max(1, max_frames)
+        self._frames = 0
+        self._chunks: deque[np.ndarray] = deque()
+        self._closed = False
+        self._condition = threading.Condition()
+
+    @property
+    def frame_count(self) -> int:
+        with self._condition:
+            return self._frames
+
+    @property
+    def max_frames(self) -> int:
+        return self._max_frames
+
+    @property
+    def is_closed(self) -> bool:
+        with self._condition:
+            return self._closed
+
+    def put_nowait(self, chunk: np.ndarray) -> bool:
+        frames = int(chunk.shape[0]) if chunk.ndim else int(chunk.size)
+        with self._condition:
+            if self._closed:
+                return False
+            if frames > self._max_frames or self._frames + frames > self._max_frames:
+                return False
+            self._chunks.append(chunk)
+            self._frames += frames
+            self._condition.notify()
+            return True
+
+    def get(self, timeout: float) -> Optional[np.ndarray]:
+        deadline = time.monotonic() + timeout
+        with self._condition:
+            while not self._chunks:
+                if self._closed:
+                    return None
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                self._condition.wait(timeout=remaining)
+            chunk = self._chunks.popleft()
+            self._frames -= int(chunk.shape[0]) if chunk.ndim else int(chunk.size)
+            return chunk
+
+    def close(self) -> None:
+        with self._condition:
+            self._closed = True
+            self._condition.notify_all()
 
 
 class Streamer:
@@ -39,10 +94,13 @@ class Streamer:
         self._audio_consumer = None
         self._monitor_thread: Optional[threading.Thread] = None
         self._writer_thread: Optional[threading.Thread] = None
-        self._audio_queue: Optional[queue.Queue] = None
+        self._audio_queue: Optional[_AudioChunkBuffer] = None
         self._stop_event = threading.Event()
         self._retrying = False
         self._last_stderr = None
+        self._dropped_audio_chunks = 0
+        self._dropped_audio_frames = 0
+        self._last_drop_log_at = 0.0
 
     def build_ffmpeg_command(self) -> List[str]:
         stream = self._config.stream
@@ -108,6 +166,9 @@ class Streamer:
         self._abort_monitor()
         self._stop_event.clear()
         self._retrying = False
+        self._dropped_audio_chunks = 0
+        self._dropped_audio_frames = 0
+        self._last_drop_log_at = 0.0
         self._state.streaming_requested = True
         self._state.retry_count = 0
         self._state.last_retry_at = None
@@ -154,6 +215,10 @@ class Streamer:
             "input_device": None if self._audio_engine else self._config.input.alsa_device,
             "output_url": output_url,
             "retry_count": self._state.retry_count,
+            "audio_buffer_frames": self._audio_queue.frame_count if self._audio_queue else 0,
+            "audio_buffer_capacity_frames": self._audio_queue.max_frames if self._audio_queue else 0,
+            "audio_dropped_chunks": self._dropped_audio_chunks,
+            "audio_dropped_frames": self._dropped_audio_frames,
             "last_exit_code": self._state.last_exit_code,
             "last_error": self._state.last_error,
             "last_stderr": self._last_stderr,
@@ -300,41 +365,51 @@ class Streamer:
         # pipe I/O.  Writing directly to stdin inside the callback stalls the
         # audio thread whenever the pipe buffer is momentarily full, producing
         # audible clicks.
-        max_chunks = max(
-            int(self._config.general.buffer_seconds
-                * self._config.input.sample_rate
-                / 1024),
-            64,
+        max_frames = max(
+            int(self._config.general.buffer_seconds * self._config.input.sample_rate),
+            self._config.input.sample_rate,
         )
-        q: queue.Queue = queue.Queue(maxsize=max_chunks)
+        q = _AudioChunkBuffer(max_frames=max_frames)
         self._audio_queue = q
         fd = stdin.fileno()
 
         def _consumer(chunk):
-            try:
-                # Queue raw numpy array — tobytes() is done in writer thread
-                # to keep the real-time audio callback fast
-                q.put_nowait(chunk)
-            except queue.Full:
-                logger.debug("Audio queue full, dropping chunk")
+            if q.put_nowait(chunk):
+                return
+            self._dropped_audio_chunks += 1
+            self._dropped_audio_frames += int(chunk.shape[0]) if chunk.ndim else int(chunk.size)
+            now = time.monotonic()
+            if now - self._last_drop_log_at >= 5.0:
+                logger.warning(
+                    "Audio buffer overflow: dropped %d chunks / %d frames (depth=%d/%d frames)",
+                    self._dropped_audio_chunks,
+                    self._dropped_audio_frames,
+                    q.frame_count,
+                    q.max_frames,
+                )
+                self._last_drop_log_at = now
 
         def _writer():
             written = 0
             try:
                 while not self._stop_event.is_set():
-                    try:
-                        data = q.get(timeout=0.5)
-                    except queue.Empty:
+                    data = q.get(timeout=0.5)
+                    if data is None:
+                        if q.is_closed:
+                            break
                         continue
                     try:
                         # Write directly to the OS file descriptor —
                         # bypasses Python buffering and avoids an extra
                         # copy when used with memoryview on a contiguous
                         # numpy array.
-                        buf = data.tobytes()
-                        view = memoryview(buf)
+                        if not data.flags.c_contiguous:
+                            data = np.ascontiguousarray(data)
+                        view = memoryview(data).cast("B")
                         while view:
                             n = os.write(fd, view)
+                            if n <= 0:
+                                raise BrokenPipeError("ffmpeg stdin closed")
                             view = view[n:]
                         written += 1
                     except Exception as exc:
@@ -344,20 +419,6 @@ class Streamer:
             finally:
                 logger.debug("Writer thread exiting (wrote %d chunks, stop_event=%s)",
                              written, self._stop_event.is_set())
-                # Drain remaining data so ffmpeg gets a clean EOF
-                drained = 0
-                while not q.empty():
-                    try:
-                        buf = q.get_nowait().tobytes()
-                        view = memoryview(buf)
-                        while view:
-                            n = os.write(fd, view)
-                            view = view[n:]
-                        drained += 1
-                    except Exception:
-                        break
-                if drained:
-                    logger.debug("Writer thread drained %d remaining chunks", drained)
 
         self._writer_thread = threading.Thread(target=_writer, daemon=True)
         self._writer_thread.start()
@@ -373,15 +434,17 @@ class Streamer:
         if self._audio_engine and self._audio_consumer:
             self._audio_engine.remove_consumer(self._audio_consumer)
             self._audio_consumer = None
+        if self._audio_queue:
+            self._audio_queue.close()
+        if self._writer_thread and self._writer_thread.is_alive():
+            self._writer_thread.join(timeout=3.0)
+            if self._writer_thread.is_alive():
+                logger.warning("Writer thread did not stop within timeout")
         if self._process and self._process.process.stdin:
             try:
                 self._process.process.stdin.close()
             except Exception:
                 pass
-        if self._writer_thread and self._writer_thread.is_alive():
-            self._writer_thread.join(timeout=3.0)
-            if self._writer_thread.is_alive():
-                logger.warning("Writer thread did not stop within timeout")
         self._writer_thread = None
         self._audio_queue = None
 

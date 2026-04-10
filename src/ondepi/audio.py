@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from threading import Event, Lock, Thread
 import time
 from typing import Callable, Optional
@@ -27,7 +27,7 @@ class AudioMeter:
             max_val = np.iinfo(data.dtype).max
             normalized = data.astype(np.float32) / max_val
         else:
-            normalized = data.astype(np.float32)
+            normalized = data.astype(np.float32, copy=False)
         
         # Handle stereo (2D array with shape [frames, channels]) or mono
         if normalized.ndim == 2 and normalized.shape[1] >= 2:
@@ -35,14 +35,14 @@ class AudioMeter:
             right = normalized[:, 1]
         else:
             # Mono - use same values for both channels
-            flat = normalized.flatten()
+            flat = normalized.ravel()
             left = flat
             right = flat
         
-        rms_left = float(np.sqrt(np.mean(np.square(left))))
-        rms_right = float(np.sqrt(np.mean(np.square(right))))
-        peak_left = float(np.max(np.abs(left)))
-        peak_right = float(np.max(np.abs(right)))
+        rms_left = float(np.sqrt(np.dot(left, left) / left.size))
+        rms_right = float(np.sqrt(np.dot(right, right) / right.size))
+        peak_left = float(max(abs(float(np.min(left))), abs(float(np.max(left)))))
+        peak_right = float(max(abs(float(np.min(right))), abs(float(np.max(right)))))
         
         return LevelState(
             rms_left=rms_left,
@@ -202,7 +202,7 @@ class AudioEngine:
             return
 
         # Detect input clipping on the raw signal before processing
-        input_peak = float(np.max(np.abs(indata)))
+        input_peak = float(max(abs(float(np.min(indata))), abs(float(np.max(indata)))))
         self._state.input_clip = input_peak >= 0.99
 
         # Copy indata — it's a view into PortAudio's buffer that becomes
@@ -217,6 +217,7 @@ class AudioEngine:
             and self._input_cfg.channels == 2
         ):
             working = np.repeat(working, 2, axis=1)
+        working = np.ascontiguousarray(working)
 
         # Gain (in-place)
         self._gain.gain_db = self._state.gain_db
