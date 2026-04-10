@@ -56,12 +56,11 @@ class AudioMeter:
 class GainController:
     gain_db: float = 0.0
 
-    def apply(self, data: np.ndarray) -> np.ndarray:
+    def apply_inplace(self, data: np.ndarray) -> None:
+        """Apply gain in-place. Data must be a writable float32 array."""
         if self.gain_db == 0.0:
-            return data
-        gain = 10 ** (self.gain_db / 20)
-        result = data.astype(np.float32) * gain
-        return result
+            return
+        data *= np.float32(10 ** (self.gain_db / 20))
 
 
 @dataclass
@@ -69,10 +68,12 @@ class SoftClipper:
     enabled: bool = True
     drive: float = 1.5
 
-    def apply(self, data: np.ndarray) -> np.ndarray:
+    def apply_inplace(self, data: np.ndarray) -> None:
+        """Apply soft clipping in-place. Data must be a writable float32 array."""
         if not self.enabled:
-            return data
-        return np.tanh(self.drive * data).astype(np.float32)
+            return
+        data *= np.float32(self.drive)
+        np.tanh(data, out=data)
 
 
 @dataclass
@@ -195,40 +196,52 @@ class AudioEngine:
                 logger.debug("Audio: %s", status)
             else:
                 logger.warning("Audio: %s", status)
-        if indata.size > 0:
-            input_peak = float(np.max(np.abs(indata)))
-            self._state.input_clip = input_peak >= 0.99
-        else:
+
+        if indata.size == 0:
             self._state.input_clip = False
-        working = indata
+            return
+
+        # Detect input clipping on the raw signal before processing
+        input_peak = float(np.max(np.abs(indata)))
+        self._state.input_clip = input_peak >= 0.99
+
+        # Copy indata — it's a view into PortAudio's buffer that becomes
+        # invalid after this callback returns.  All subsequent processing
+        # is done in-place on this copy (zero extra allocations).
+        working = indata.copy()
+
+        # Mono → stereo duplication
         if (
             working.ndim == 2
             and working.shape[1] == 1
             and self._input_cfg.channels == 2
         ):
             working = np.repeat(working, 2, axis=1)
+
+        # Gain (in-place)
         self._gain.gain_db = self._state.gain_db
-        gained = self._gain.apply(working)
-        clipped = self._clipper.apply(gained)
-        levels = self._meter.compute_levels(clipped)
-        self._state.levels = levels
-        
-        # Send to monitor output if enabled (non-blocking)
+        self._gain.apply_inplace(working)
+
+        # Soft clipper / limiter (in-place)
+        self._clipper.apply_inplace(working)
+
+        # Metering (read-only)
+        self._state.levels = self._meter.compute_levels(working)
+
+        # Monitor output (non-blocking)
         if self._monitor_enabled and self._output_stream:
             try:
-                self._output_stream.write(clipped)
+                self._output_stream.write(working)
             except sd.PortAudioError:
                 pass
             except Exception:
                 pass
-        
-        # Dispatch to consumers without holding the lock during calls.
-        # Copy the list under the lock, then iterate outside it.
-        consumers = self._consumers
-        for consumer in consumers:
+
+        # Dispatch to consumers (copy-on-write list, no lock needed)
+        for consumer in self._consumers:
             try:
-                consumer(clipped)
-            except Exception:  # pragma: no cover - consumer errors are non-fatal
+                consumer(working)
+            except Exception:  # pragma: no cover
                 continue
 
     def _run_loop(self) -> None:
@@ -258,7 +271,6 @@ class AudioEngine:
                     channels=channels,
                     dtype="float32",
                     device=self._input_cfg.alsa_device or None,
-                    blocksize=1024,
                     latency="high",
                     callback=self._callback,
                     finished_callback=self._on_finished,

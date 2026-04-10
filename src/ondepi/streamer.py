@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import queue
 import subprocess
 import threading
@@ -170,6 +171,7 @@ class Streamer:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             stdin=subprocess.PIPE if self._audio_engine else None,
+            bufsize=0 if self._audio_engine else -1,
         )
         self._process = StreamProcess(command=command, process=process)
         self._state.started_at = datetime.utcnow()
@@ -306,6 +308,7 @@ class Streamer:
         )
         q: queue.Queue = queue.Queue(maxsize=max_chunks)
         self._audio_queue = q
+        fd = stdin.fileno()
 
         def _consumer(chunk):
             try:
@@ -324,7 +327,15 @@ class Streamer:
                     except queue.Empty:
                         continue
                     try:
-                        stdin.write(data.tobytes())
+                        # Write directly to the OS file descriptor —
+                        # bypasses Python buffering and avoids an extra
+                        # copy when used with memoryview on a contiguous
+                        # numpy array.
+                        buf = data.tobytes()
+                        view = memoryview(buf)
+                        while view:
+                            n = os.write(fd, view)
+                            view = view[n:]
                         written += 1
                     except Exception as exc:
                         logger.warning("ffmpeg stdin write failed after %d chunks: %s",
@@ -337,7 +348,11 @@ class Streamer:
                 drained = 0
                 while not q.empty():
                     try:
-                        stdin.write(q.get_nowait().tobytes())
+                        buf = q.get_nowait().tobytes()
+                        view = memoryview(buf)
+                        while view:
+                            n = os.write(fd, view)
+                            view = view[n:]
                         drained += 1
                     except Exception:
                         break

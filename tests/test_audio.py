@@ -16,14 +16,14 @@ def test_audio_meter_levels():
 def test_gain_controller():
     gain = GainController(gain_db=6.0)
     data = np.array([0.5, -0.5], dtype=np.float32)
-    out = gain.apply(data)
-    assert out.max() > 0.5
-    assert out.min() < -0.5
+    gain.apply_inplace(data)
+    assert data.max() > 0.5
+    assert data.min() < -0.5
 
 
 def test_soft_clipper():
     clipper = SoftClipper(enabled=True, drive=2.0)
     data = np.array([2.0, -2.0, 0.0], dtype=np.float32)
-    out = clipper.apply(data)
-    assert out.max() <= 1.0
-    assert out.min() >= -1.0
+    clipper.apply_inplace(data)
+    assert data.max() <= 1.0
+    assert data.min() >= -1.0
