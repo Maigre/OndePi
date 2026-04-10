@@ -17,7 +17,7 @@ DEFAULT_EXAMPLE_PATH = Path("config.example.toml")
 
 @dataclass
 class GeneralConfig:
-    log_level: str = "info"
+    log_level: str = "debug"
     reconnect: bool = True
     buffer_seconds: int = 5
     retry_initial_delay_seconds: int = 3

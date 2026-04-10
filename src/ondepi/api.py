@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from fastapi import FastAPI, HTTPException
 import threading
 import time
@@ -13,6 +14,8 @@ from .streamer import Streamer
 from .uplink import UplinkChecker
 from .webradio import WebradioPlayer
 import sounddevice as sd
+
+logger = logging.getLogger(__name__)
 import numpy as np
 from .config import save_config, validate_config, validation_errors, validation_issues
 
@@ -270,16 +273,20 @@ class ApiService:
             device_status = self._audio_engine.device_status()
             connected = device_status.get("status") == "connected"
             if not connected and self._state.streaming:
+                logger.warning("Audio device disconnected while streaming, stopping stream")
                 self._state.last_error = "Audio device disconnected, streaming paused"
                 self._streamer.stop()
-            # Only auto-restart if explicitly requested AND not recently stopped
+            # Only auto-restart if device reconnected, user still wants streaming,
+            # and the streamer isn't already running or retrying on its own
             if (connected and 
                 self._state.streaming_requested and 
                 not self._state.streaming and
-                not self._streamer._stop_event.is_set()):
+                not self._streamer.is_busy):
+                logger.info("Audio device reconnected, auto-restarting stream")
                 try:
                     self._streamer.start()
                 except Exception as exc:
+                    logger.error("Auto-restart failed: %s", exc)
                     self._state.last_error = str(exc)
             time.sleep(1)
 

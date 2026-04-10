@@ -40,6 +40,7 @@ class Streamer:
         self._writer_thread: Optional[threading.Thread] = None
         self._audio_queue: Optional[queue.Queue] = None
         self._stop_event = threading.Event()
+        self._retrying = False
         self._last_stderr = None
 
     def build_ffmpeg_command(self) -> List[str]:
@@ -102,8 +103,10 @@ class Streamer:
 
     def start(self) -> None:
         # Stop any existing retry loop / running process first
+        logger.info("Stream start requested")
         self._abort_monitor()
         self._stop_event.clear()
+        self._retrying = False
         self._state.streaming_requested = True
         self._state.retry_count = 0
         self._state.last_retry_at = None
@@ -113,12 +116,15 @@ class Streamer:
         self._start_process(is_retry=False)
 
     def stop(self) -> None:
+        logger.info("Stream stop requested")
         self._state.streaming_requested = False
         self._abort_monitor()
 
     def _abort_monitor(self) -> None:
         """Signal monitor/retry loop to stop and wait for it."""
+        logger.debug("Aborting monitor/retry loop")
         self._stop_event.set()
+        self._retrying = False
         proc = self._process
         if proc:
             self._cleanup_audio()
@@ -156,6 +162,8 @@ class Streamer:
         self._config = config
 
     def _start_process(self, is_retry: bool) -> None:
+        logger.info("Starting ffmpeg process (retry=%s, attempt=%d)",
+                    is_retry, self._state.retry_count)
         command = self.build_ffmpeg_command()
         process = subprocess.Popen(
             command,
@@ -216,7 +224,7 @@ class Streamer:
                 break
             if stderr_error.is_set():
                 # ffmpeg reported an error — kill it since it won't exit on its own
-                logger.warning("ffmpeg output error detected, terminating")
+                logger.warning("ffmpeg output error detected during grace period, terminating")
                 connected = False
                 try:
                     process.terminate()
@@ -226,7 +234,11 @@ class Streamer:
             time.sleep(0.25)
 
         if connected:
+            logger.info("ffmpeg connected to Icecast successfully")
             self._state.streaming = True
+        else:
+            logger.warning("ffmpeg did not connect within grace period (stop_event=%s, poll=%s)",
+                           self._stop_event.is_set(), process.poll())
 
         process.wait()
         reader.join(timeout=2.0)
@@ -236,38 +248,49 @@ class Streamer:
         self._last_stderr = stderr or None
         self._cleanup_audio()
         self._process = None
+        was_streaming = self._state.streaming
         self._state.streaming = False
         self._state.started_at = None
         self._state.last_exit_code = exit_code
 
         if self._stop_event.is_set():
+            logger.info("ffmpeg stopped by user request (exit_code=%s)", exit_code)
             return
 
         message = _parse_ffmpeg_error(exit_code, stderr)
-        logger.error("Stream failed: %s", message)
+        logger.error("Stream failed (exit_code=%s, was_streaming=%s): %s",
+                     exit_code, was_streaming, message)
         if stderr:
             for line in stderr.splitlines():
-                logger.debug("  ffmpeg: %s", line)
+                logger.warning("  ffmpeg: %s", line)
         self._state.last_error = message
 
         if not self._config.general.reconnect:
+            logger.info("Reconnect disabled, not retrying")
             return
 
         if self._config.general.retry_max_attempts and (
             self._state.retry_count >= self._config.general.retry_max_attempts
         ):
+            logger.warning("Max retry attempts (%d) reached, giving up",
+                           self._config.general.retry_max_attempts)
             return
 
         self._state.retry_count += 1
         self._state.last_retry_at = datetime.utcnow()
+        self._retrying = True
         delay = _retry_delay(
             self._state.retry_count,
             self._config.general.retry_initial_delay_seconds,
             self._config.general.retry_max_delay_seconds,
         )
+        logger.info("Retrying in %.1fs (attempt %d)", delay, self._state.retry_count)
         # Interruptible sleep — wakes immediately if stop/restart is requested
         if self._stop_event.wait(timeout=delay):
+            logger.info("Retry sleep interrupted by stop event")
+            self._retrying = False
             return
+        self._retrying = False
         self._start_process(is_retry=True)
 
     def _build_audio_consumer(self, stdin) -> Callable:
@@ -291,6 +314,7 @@ class Streamer:
                 logger.debug("Audio queue full, dropping chunk")
 
         def _writer():
+            written = 0
             try:
                 while not self._stop_event.is_set():
                     try:
@@ -299,22 +323,36 @@ class Streamer:
                         continue
                     try:
                         stdin.write(data)
-                    except Exception:
-                        logger.debug("ffmpeg stdin write failed")
+                        written += 1
+                    except Exception as exc:
+                        logger.warning("ffmpeg stdin write failed after %d chunks: %s",
+                                       written, exc)
                         break
             finally:
+                logger.debug("Writer thread exiting (wrote %d chunks, stop_event=%s)",
+                             written, self._stop_event.is_set())
                 # Drain remaining data so ffmpeg gets a clean EOF
+                drained = 0
                 while not q.empty():
                     try:
                         stdin.write(q.get_nowait())
+                        drained += 1
                     except Exception:
                         break
+                if drained:
+                    logger.debug("Writer thread drained %d remaining chunks", drained)
 
         self._writer_thread = threading.Thread(target=_writer, daemon=True)
         self._writer_thread.start()
         return _consumer
 
+    @property
+    def is_busy(self) -> bool:
+        """True when the streamer is actively streaming or retrying."""
+        return self._state.streaming or self._retrying or self._process is not None
+
     def _cleanup_audio(self) -> None:
+        logger.debug("Cleaning up audio pipeline")
         if self._audio_engine and self._audio_consumer:
             self._audio_engine.remove_consumer(self._audio_consumer)
             self._audio_consumer = None
@@ -325,6 +363,8 @@ class Streamer:
                 pass
         if self._writer_thread and self._writer_thread.is_alive():
             self._writer_thread.join(timeout=3.0)
+            if self._writer_thread.is_alive():
+                logger.warning("Writer thread did not stop within timeout")
         self._writer_thread = None
         self._audio_queue = None
 
