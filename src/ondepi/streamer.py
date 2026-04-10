@@ -309,7 +309,9 @@ class Streamer:
 
         def _consumer(chunk):
             try:
-                q.put_nowait(chunk.astype("float32").tobytes())
+                # Queue raw numpy array — tobytes() is done in writer thread
+                # to keep the real-time audio callback fast
+                q.put_nowait(chunk)
             except queue.Full:
                 logger.debug("Audio queue full, dropping chunk")
 
@@ -322,7 +324,7 @@ class Streamer:
                     except queue.Empty:
                         continue
                     try:
-                        stdin.write(data)
+                        stdin.write(data.tobytes())
                         written += 1
                     except Exception as exc:
                         logger.warning("ffmpeg stdin write failed after %d chunks: %s",
@@ -335,7 +337,7 @@ class Streamer:
                 drained = 0
                 while not q.empty():
                     try:
-                        stdin.write(q.get_nowait())
+                        stdin.write(q.get_nowait().tobytes())
                         drained += 1
                     except Exception:
                         break

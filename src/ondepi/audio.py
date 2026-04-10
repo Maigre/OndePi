@@ -133,12 +133,11 @@ class AudioEngine:
 
     def add_consumer(self, consumer: AudioConsumer) -> None:
         with self._lock:
-            self._consumers.append(consumer)
+            self._consumers = [*self._consumers, consumer]
 
     def remove_consumer(self, consumer: AudioConsumer) -> None:
         with self._lock:
-            if consumer in self._consumers:
-                self._consumers.remove(consumer)
+            self._consumers = [c for c in self._consumers if c is not consumer]
 
     def update_input(self, input_cfg: InputConfig) -> None:
         # Check if we need to restart (device or sample rate changed)
@@ -214,15 +213,18 @@ class AudioEngine:
         levels = self._meter.compute_levels(clipped)
         self._state.levels = levels
         
-        # Send to monitor output if enabled
+        # Send to monitor output if enabled (non-blocking)
         if self._monitor_enabled and self._output_stream:
             try:
                 self._output_stream.write(clipped)
+            except sd.PortAudioError:
+                pass
             except Exception:
-                pass  # Ignore output errors
+                pass
         
-        with self._lock:
-            consumers = list(self._consumers)
+        # Dispatch to consumers without holding the lock during calls.
+        # Copy the list under the lock, then iterate outside it.
+        consumers = self._consumers
         for consumer in consumers:
             try:
                 consumer(clipped)
