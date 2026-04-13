@@ -32,6 +32,7 @@ class WebradioPlayer:
         self._running = Event()
         self._retry_count = 0
         self._last_error: Optional[str] = None
+        self._output_consumers: list = []
 
     @property
     def playing(self) -> bool:
@@ -53,6 +54,12 @@ class WebradioPlayer:
         self._device = device
         self._sample_rate = sample_rate
         self._channels = channels
+
+    def add_output_consumer(self, consumer) -> None:
+        self._output_consumers = [*self._output_consumers, consumer]
+
+    def remove_output_consumer(self, consumer) -> None:
+        self._output_consumers = [c for c in self._output_consumers if c is not consumer]
 
     def start(self) -> None:
         if self._running.is_set() or not self._url:
@@ -161,6 +168,11 @@ class WebradioPlayer:
                 try:
                     output_stream.write(frames)
                     consecutive_errors = 0
+                    for oc in self._output_consumers:
+                        try:
+                            oc(frames)
+                        except Exception:
+                            continue
                 except Exception as exc:
                     consecutive_errors += 1
                     if consecutive_errors == 1:

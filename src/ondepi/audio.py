@@ -95,6 +95,7 @@ class AudioEngine:
         self._output_stream: Optional[sd.OutputStream] = None
         self._monitor_enabled = False
         self._consumers: list[AudioConsumer] = []
+        self._output_consumers: list[AudioConsumer] = []
         self._lock = Lock()
         self._stream_lock = Lock()
         self._running = Event()
@@ -139,6 +140,14 @@ class AudioEngine:
     def remove_consumer(self, consumer: AudioConsumer) -> None:
         with self._lock:
             self._consumers = [c for c in self._consumers if c is not consumer]
+
+    def add_output_consumer(self, consumer: AudioConsumer) -> None:
+        with self._lock:
+            self._output_consumers = [*self._output_consumers, consumer]
+
+    def remove_output_consumer(self, consumer: AudioConsumer) -> None:
+        with self._lock:
+            self._output_consumers = [c for c in self._output_consumers if c is not consumer]
 
     def update_input(self, input_cfg: InputConfig) -> None:
         # Check if we need to restart (device or sample rate changed)
@@ -237,6 +246,14 @@ class AudioEngine:
                 pass
             except Exception:
                 pass
+
+        # Dispatch to output listeners (only when monitoring)
+        if self._monitor_enabled:
+            for oc in self._output_consumers:
+                try:
+                    oc(working)
+                except Exception:
+                    continue
 
         # Dispatch to consumers (copy-on-write list, no lock needed)
         for consumer in self._consumers:

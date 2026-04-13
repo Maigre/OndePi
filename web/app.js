@@ -315,6 +315,43 @@ const MonitorControl = {
   }
 };
 
+const ListenControl = {
+  playing: false,
+  audio: null,
+  init() {
+    document.getElementById("btn-listen").addEventListener("click", () => this.toggle());
+  },
+  toggle() {
+    if (this.playing) { this.stop(); } else { this.start(); }
+  },
+  start() {
+    this.audio = new Audio("/api/listen");
+    this.audio.addEventListener("error", () => {
+      Toast.show("Listen stream error", "error");
+      this.stop();
+    });
+    this.audio.play().then(() => {
+      this.playing = true;
+      this.updateUI();
+    }).catch(() => {
+      Toast.show("Could not start playback", "error");
+    });
+  },
+  stop() {
+    if (this.audio) {
+      this.audio.pause();
+      this.audio.src = "";
+      this.audio = null;
+    }
+    this.playing = false;
+    this.updateUI();
+  },
+  updateUI() {
+    const btn = document.getElementById("btn-listen");
+    btn.classList.toggle("active", this.playing);
+  }
+};
+
 const DeviceSelector = {
   init() {
     document.getElementById("btn-refresh-devices").addEventListener("click", () => this.load());
@@ -819,6 +856,7 @@ async function init() {
   GainControl.init();
   LimiterControl.init();
   MonitorControl.init();
+  ListenControl.init();
   StreamControls.init();
   ConfigForm.init();
   DeviceSelector.init();

@@ -89,6 +89,9 @@ h4{font-size:.8rem;color:var(--txt2);margin-bottom:.4rem;font-weight:500}
 .monitor-btn:hover{opacity:.8}
 .monitor-btn.active{opacity:1;background:var(--accent);border-color:var(--accent)}
 .monitor-btn.locked{opacity:1;background:var(--warn);border-color:var(--warn)}
+.listen-btn{background:transparent;border:1px solid var(--border);border-radius:5px;padding:.3rem .4rem;font-size:1rem;cursor:pointer;opacity:.5;transition:opacity .15s, background .15s}
+.listen-btn:hover{opacity:.8}
+.listen-btn.active{opacity:1;background:var(--accent);border-color:var(--accent)}
 .radio-ind{font-size:.9rem;opacity:.7}
 .radio-ind.inactive{opacity:.2;filter:grayscale(1)}
 .audio-ctrl{display:flex;flex-direction:column;gap:.3rem;min-width:120px}

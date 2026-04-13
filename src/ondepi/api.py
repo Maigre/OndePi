@@ -4,7 +4,9 @@ import logging
 from fastapi import FastAPI, HTTPException
 import threading
 import time
-from fastapi.responses import HTMLResponse
+import queue
+import subprocess
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import AppConfig
@@ -233,6 +235,89 @@ class ApiService:
                 if self._webradio and self._config.webradio.url:
                     self._webradio.start()
             return {"ok": True, "enabled": actual}
+
+        @app.get("/api/listen")
+        def listen_output():
+            sr = self._config.input.sample_rate
+            ch = self._config.input.channels
+            audio_q: queue.Queue = queue.Queue(maxsize=100)
+
+            def on_output(frames: np.ndarray):
+                try:
+                    audio_q.put_nowait(frames.copy())
+                except queue.Full:
+                    pass
+
+            if self._audio_engine:
+                self._audio_engine.add_output_consumer(on_output)
+            if self._webradio:
+                self._webradio.add_output_consumer(on_output)
+
+            def generate():
+                proc = subprocess.Popen(
+                    [
+                        "ffmpeg", "-hide_banner", "-loglevel", "error",
+                        "-f", "f32le", "-ar", str(sr), "-ac", str(ch),
+                        "-i", "pipe:0",
+                        "-f", "mp3", "-b:a", "128k",
+                        "pipe:1",
+                    ],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                )
+                stop = threading.Event()
+                silence = np.zeros(
+                    (sr // 25, ch), dtype=np.float32
+                ).tobytes()
+
+                def feed():
+                    try:
+                        while not stop.is_set():
+                            try:
+                                chunk = audio_q.get(timeout=0.5)
+                            except queue.Empty:
+                                proc.stdin.write(silence)
+                                proc.stdin.flush()
+                                continue
+                            proc.stdin.write(chunk.tobytes())
+                            proc.stdin.flush()
+                    except (BrokenPipeError, OSError):
+                        pass
+                    finally:
+                        try:
+                            proc.stdin.close()
+                        except Exception:
+                            pass
+
+                threading.Thread(target=feed, daemon=True).start()
+
+                try:
+                    while True:
+                        data = proc.stdout.read(4096)
+                        if not data:
+                            break
+                        yield data
+                finally:
+                    stop.set()
+                    if self._audio_engine:
+                        self._audio_engine.remove_output_consumer(on_output)
+                    if self._webradio:
+                        self._webradio.remove_output_consumer(on_output)
+                    try:
+                        proc.terminate()
+                        proc.wait(timeout=2)
+                    except Exception:
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
+
+            return StreamingResponse(
+                generate(),
+                media_type="audio/mpeg",
+                headers={"Cache-Control": "no-cache"},
+            )
 
         app.mount("/", StaticFiles(directory="web", html=True), name="web")
 
