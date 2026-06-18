@@ -98,14 +98,17 @@ class AppConfig:
     webradio: WebradioConfig
 
     def to_dict(self) -> Dict[str, Any]:
+        # Copy each section — returning the live ``__dict__`` lets a caller that
+        # mutates the result (e.g. masking the password) silently corrupt the
+        # in-memory config.
         return {
-            "general": self.general.__dict__,
-            "input": self.input.__dict__,
-            "stream": self.stream.__dict__,
-            "metadata": self.metadata.__dict__,
-            "web": self.web.__dict__,
-            "serial": self.serial.__dict__,
-            "webradio": self.webradio.__dict__,
+            "general": dict(self.general.__dict__),
+            "input": dict(self.input.__dict__),
+            "stream": dict(self.stream.__dict__),
+            "metadata": dict(self.metadata.__dict__),
+            "web": dict(self.web.__dict__),
+            "serial": dict(self.serial.__dict__),
+            "webradio": dict(self.webradio.__dict__),
         }
 
     @staticmethod

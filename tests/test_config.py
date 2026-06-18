@@ -2,6 +2,15 @@ from ondepi.config import AppConfig, ensure_config, load_config
 from ondepi.state import StreamState
 
 
+def test_to_dict_does_not_alias_config():
+    # Mutating to_dict() output (as the API does when masking the password) must
+    # not change the live config.
+    cfg = AppConfig.from_dict({"stream": {"password": "secret", "server": "h"}})
+    d = cfg.to_dict()
+    d["stream"]["password"] = ""
+    assert cfg.stream.password == "secret"
+
+
 def test_from_dict_ignores_unknown_keys():
     # A stale/removed key (e.g. the old `tls`) or a typo must not break loading.
     cfg = AppConfig.from_dict(
