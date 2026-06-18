@@ -14,9 +14,13 @@ bits_per_sample = 16
 channels = 2
 limiter_enabled = true
 limiter_drive = 1.5
-# Capture block size in frames. 0 = auto. Raise (e.g. 2048) if you hear
-# clicks/xruns while the box also decodes webradio to the FM output.
+# Capture block size in frames. Leave 0 (auto) — forcing a value (e.g. 2048)
+# was measured to CAUSE input overflows/clicks on a Pi 3B+.
 blocksize = 0
+# Capture latency buffer: "low" | "high" | seconds. Bigger absorbs scheduling
+# jitter and prevents input-overflow clicks. "high" was only ~34 ms on a Pi
+# 3B+; 0.3 s is a safe default. Raise to 0.5 if clicks persist under load.
+latency = 0.3
 
 [stream]
 format = "mp3" # mp3|aac|opus

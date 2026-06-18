@@ -33,11 +33,17 @@ class InputConfig:
     channels: int = 2
     limiter_enabled: bool = True
     limiter_drive: float = 1.5
-    # PortAudio capture block size in frames. 0 = auto (PortAudio chooses from
-    # latency). A larger fixed value (e.g. 2048) gives bigger, less
-    # jitter-sensitive callbacks — fewer xruns/clicks when the box is also
-    # decoding webradio to the FM output, at the cost of a little latency.
+    # PortAudio capture block size in frames. Leave 0 (auto). Measured on a
+    # Pi 3B+: forcing an explicit blocksize (e.g. 2048) *causes* ~7 input
+    # overflows/s; 0 lets PortAudio size the buffers for the latency target and
+    # measured 0/s. Tune `latency`, not this.
     blocksize: int = 0
+    # PortAudio capture latency: "low" | "high" | seconds (float). The buffer
+    # that absorbs scheduling/GIL jitter; if it's too small the capture drops
+    # samples (input overflow = clicks). "high" resolved to only ~34 ms on a
+    # Pi 3B+ — too small under load — so we default to 0.3 s. Raise to 0.5 if
+    # clicks persist under heavy concurrent load.
+    latency: float | str = 0.3
 
 
 @dataclass

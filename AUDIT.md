@@ -138,48 +138,53 @@ In likely order:
 5. ✅ Honest streaming state: `-rw_timeout` on the ffmpeg output, post-grace error handling, stall detection (buffer-backed-up + no drain), and a `stream_phase` lifecycle (stopped/connecting/live/stalled/error) surfaced to the UI.
 5b. ⏳ *Server-confirmed* LIVE deferred: the reference server is **Liquidsoap harbor**, which has no generic Icecast `status-json.xsl`; true server confirmation needs per-deployment config (e.g. AzuraCast nowplaying API). Hook left for a follow-up.
 
-**Phase 2 — Kill the clicks (IN PROGRESS — instrument + first structural fix)**
+**Phase 2 — Kill the clicks (instrumented + root-caused by measurement)**
 
-**Box role (corrected):** this is a full-duplex audio box. It **always** plays
-webradio → audio-interface **output** → hardware **FM transmitter**, *and*
-(when live) captures the audio-interface **input** → server `/input`. The two
-ffmpegs are by design; webradio must keep running during a live stream.
+**Box role:** full-duplex box. It **always** plays webradio → audio-interface
+**output** → hardware **FM transmitter**, *and* (when live) captures the input →
+server `/input`. The two ffmpegs are by design; webradio must keep running
+during a live stream (an earlier attempt to gate it off was **reverted** — it
+would cut the FM feed).
 
-Diagnosis (operator report: discrete clicks 1–10 s apart, worse at higher level,
-"chunk junction"; reference unit is a **Pi 3B+**):
-- The `tanh` limiter is memoryless/continuous → it **cannot** produce discrete
-  clicks; ruled out.
-- "Worse at higher level" ⇒ a fixed-size **sample discontinuity** (inaudible
-  when quiet, a loud click when hot).
-- **Leading hypothesis — clock drift between two independent streams on one
-  device.** Capture (`sd.InputStream`) and webradio playback (`sd.OutputStream`)
-  open the *same* ALSA device as two separate PortAudio streams with
-  independent clocks. They slip relative to each other; each slip is a
-  buffer over/under-run = a periodic-but-irregular glitch — a strong match for
-  "1–10 s apart, no obvious logic." The monitor path makes it worse by doing a
-  **blocking `output_stream.write()` inside the input callback**.
-- Secondary: input xruns under CPU contention (two ffmpegs on a Pi 3B+).
-- The previous revamp also left a `logger.warning()` **inside the RT audio
-  callback** (journald I/O in the real-time thread) — itself an xrun source —
-  and input overflows were logged only at DEBUG (invisible).
+The clicks are **input overflow** — the ALSA capture buffer overflowing because
+the PortAudio callback isn't serviced in time, dropping captured samples
+(inaudible when quiet, a loud click when hot; "worse at higher level"). The
+`tanh` limiter (memoryless/continuous) was ruled out.
 
-Done in this pass:
-6. ✅ RT-callback hygiene: removed all logging from `_callback`; cheap counters
-   only. A non-RT watcher logs input xruns (timestamped, deduped).
-7. ✅ Observability: `last_overflow_at` in `/api/status`; the web UI log panel
-   now distinguishes **"input xrun"** vs **"buffer drop"** so a heard click maps
-   to a cause.
+Method: with logging fixed, `_overflow_count` became a hard metric. Measured on
+the Pi 3B+ (20 s windows):
 
-Reverted: an earlier attempt gated webradio off while streaming — **wrong**, it
-would cut the FM-transmitter feed during a live stream. Webradio vs input-monitor
-on the output is switched only by the monitor toggle, never by streaming state.
+| config | input overflow |
+| --- | --- |
+| `blocksize=2048`, `latency="high"` | **7.2 / s** |
+| `blocksize=0` (auto), `latency="high"` (≈34 ms) | **0 / s** (idle) |
+| `blocksize=0`, `latency=0.3` (300 ms) | **0 / s** |
 
-Primary fix (next, needs on-device testing): **unify capture + playback into a
-single full-duplex `sd.Stream`** (one shared clock, one callback that reads input
-and writes the webradio/monitor output) — removes the two-clock drift and the
-blocking write-in-callback. Cheaper interim levers: explicit larger `blocksize`
-+ RT thread priority (`SCHED_FIFO` / systemd `CPUSchedulingPolicy`); graceful
-(silence/crossfade) drops; gain ramping; a real look-ahead limiter.
+Findings:
+- **Forcing `blocksize` is harmful** — `2048` *caused* 7.2 overflows/s; auto
+  (`0`) lets PortAudio size buffers for the latency target. (This corrected an
+  earlier wrong guess of mine that recommended a large fixed blocksize.)
+- `latency="high"` resolves to only **~34 ms** on this device — too small to
+  absorb scheduling/GIL jitter under load. Default raised to **0.3 s**.
+- Webradio is **not** the cause: input-only (webradio off) overflowed at the
+  same rate — so it's capture starvation, not full-duplex clock drift.
+- `LimitRTPRIO`/`LimitMEMLOCK` were granted but PortAudio did **not** auto-
+  elevate the callback thread to `SCHED_FIFO` (threads stayed `TS`); kept for a
+  future explicit-RT attempt. The latency buffer is the actual fix.
+
+Shipped:
+6. ✅ RT-callback hygiene: no logging in `_callback`; a non-RT watcher logs
+   input overflows (timestamped, deduped); `last_overflow_at` + `actual_latency`
+   in `/api/status`; web UI labels glitches **"input xrun"** vs **"buffer drop"**.
+7. ✅ `input.blocksize` (default 0) and `input.latency` (default **0.3 s**)
+   configurable; device set to `blocksize=0, latency=0.3` → measured **0 / s**.
+
+To verify (needs a real on-air stream): the idle metric is now 0/s; confirm it
+stays ~0 under live load and that the clicks are gone. If overflows return under
+load, raise `latency` to 0.5 and (next) attempt explicit `SCHED_FIFO` on the
+PortAudio thread; longer term a single full-duplex `sd.Stream` removes the
+blocking monitor write-in-callback. Remaining audio polish: gain ramping; a real
+look-ahead limiter.
 
 **Phase 3 — Harden weak uplink**
 9. Fast, race-free reconnect (clean mount release, jittered backoff, pinned-IP / local caching resolver).

@@ -107,6 +107,7 @@ class AudioEngine:
         self._other_status_count = 0
         self._last_logged_overflow = 0
         self._last_overflow_at: Optional[datetime] = None
+        self._actual_latency = None
         self._last_stream_status = None
         self._stream_channels = self._input_cfg.channels
 
@@ -297,7 +298,7 @@ class AudioEngine:
                     channels=channels,
                     dtype="float32",
                     device=self._input_cfg.alsa_device or None,
-                    latency="high",
+                    latency=self._input_cfg.latency,
                     blocksize=int(self._input_cfg.blocksize or 0),
                     callback=self._callback,
                     finished_callback=self._on_finished,
@@ -305,6 +306,7 @@ class AudioEngine:
                 with self._stream_lock:
                     self._stream = stream
                 stream.start()
+                self._actual_latency = getattr(stream, "latency", None)
                 self._state.last_error = None
                 self._device_status = "connected"
                 self._last_device_error = None
@@ -364,6 +366,7 @@ class AudioEngine:
             "last_stream_status": self._last_stream_status,
             "overflow_count": self._overflow_count,
             "last_overflow_at": self._last_overflow_at.isoformat() if self._last_overflow_at else None,
+            "actual_latency": self._actual_latency,
             "device_default_rate": device_default_rate,
             "sample_rate_mismatch": sample_rate_mismatch,
             "device": self._input_cfg.alsa_device,
