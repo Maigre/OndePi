@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import random
 import subprocess
 import threading
 import time
@@ -30,6 +31,14 @@ OUTPUT_RW_TIMEOUT_US = 15_000_000
 # the uplink is wedged even though ffmpeg hasn't exited — force a reconnect.
 STALL_BUFFER_FRACTION = 0.5
 STALL_TIMEOUT = 8.0
+
+# When the connectivity doctor reports the uplink down, wait up to this long for
+# it to recover before reconnecting anyway (so a stuck doctor never blocks
+# reconnect forever).
+RECONNECT_UPLINK_MAX_WAIT = 60.0
+
+# Backoff jitter spread (±) to avoid lock-step reconnect storms.
+RETRY_JITTER = 0.2
 
 
 @dataclass
@@ -382,14 +391,41 @@ class Streamer:
             self._config.general.retry_initial_delay_seconds,
             self._config.general.retry_max_delay_seconds,
         )
+        delay *= 1.0 + random.uniform(-RETRY_JITTER, RETRY_JITTER)  # jitter
         logger.info("Retrying in %.1fs (attempt %d)", delay, self._state.retry_count)
         # Interruptible sleep — wakes immediately if stop/restart is requested
         if self._stop_event.wait(timeout=delay):
             logger.info("Retry sleep interrupted by stop event")
             self._retrying = False
             return
+        # Weak-uplink coupling: if the connectivity doctor says the uplink is
+        # down, don't burn a reconnect into a dead network (which just eats a
+        # connect timeout). Wait until it recovers, then reconnect immediately.
+        if not self._wait_for_uplink(RECONNECT_UPLINK_MAX_WAIT):
+            self._retrying = False
+            return
         self._retrying = False
         self._start_process(is_retry=True)
+
+    def _wait_for_uplink(self, max_wait: float) -> bool:
+        """Block while the connectivity doctor reports the uplink down.
+
+        Returns False if a stop was requested (caller should bail). ``uplink_ok``
+        of None (unknown / no checker) does not block. Capped by ``max_wait`` so
+        a stuck/None doctor can never prevent a reconnect attempt.
+        """
+        if self._state.uplink_ok is not False:
+            return True
+        logger.info("Uplink down — holding reconnect until it recovers (max %.0fs)", max_wait)
+        deadline = time.monotonic() + max_wait
+        while self._state.uplink_ok is False:
+            if self._stop_event.wait(timeout=1.0):
+                return False
+            if time.monotonic() >= deadline:
+                logger.warning("Uplink still down after %.0fs — reconnecting anyway", max_wait)
+                return True
+        logger.info("Uplink recovered — reconnecting now")
+        return True
 
     def _watch_live(self, process, stderr_error: threading.Event) -> bool:
         """Watch a connected ffmpeg until it exits, errors, stalls, or we stop.

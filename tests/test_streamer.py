@@ -36,6 +36,27 @@ def test_is_stalled_predicate():
     assert s._is_stalled() is False
 
 
+def test_wait_for_uplink():
+    import threading
+
+    from ondepi.state import StreamState
+
+    s = Streamer.__new__(Streamer)
+    s._state = StreamState()
+    s._stop_event = threading.Event()
+
+    # Unknown (None) and up (True) must not block.
+    s._state.uplink_ok = None
+    assert s._wait_for_uplink(5) is True
+    s._state.uplink_ok = True
+    assert s._wait_for_uplink(5) is True
+
+    # Down + stop requested -> returns False (caller bails).
+    s._state.uplink_ok = False
+    s._stop_event.set()
+    assert s._wait_for_uplink(5) is False
+
+
 def test_ffmpeg_command_has_rw_timeout():
     from ondepi.config import AppConfig
 

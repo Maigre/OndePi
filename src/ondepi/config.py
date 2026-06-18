@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, Dict
 
@@ -10,6 +11,8 @@ except ModuleNotFoundError:  # pragma: no cover - py310 fallback
     import tomli as tomllib  # type: ignore[import-not-found]
 
 import tomli_w  # type: ignore[import-not-found]
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG_PATH = Path("config.toml")
 DEFAULT_EXAMPLE_PATH = Path("config.example.toml")
@@ -54,7 +57,6 @@ class StreamConfig:
     server: str = ""
     port: int = 8000
     mount: str = ""
-    tls: bool = True
     username: str = "source"
     password: str = ""
     icy: bool = True
@@ -109,13 +111,13 @@ class AppConfig:
     @staticmethod
     def from_dict(data: Dict[str, Any]) -> "AppConfig":
         return AppConfig(
-            general=GeneralConfig(**_section(data, "general")),
-            input=InputConfig(**_section(data, "input")),
-            stream=StreamConfig(**_section(data, "stream")),
-            metadata=MetadataConfig(**_section(data, "metadata")),
-            web=WebConfig(**_section(data, "web")),
-            serial=SerialConfig(**_section(data, "serial")),
-            webradio=WebradioConfig(**_section(data, "webradio")),
+            general=_build(GeneralConfig, data, "general"),
+            input=_build(InputConfig, data, "input"),
+            stream=_build(StreamConfig, data, "stream"),
+            metadata=_build(MetadataConfig, data, "metadata"),
+            web=_build(WebConfig, data, "web"),
+            serial=_build(SerialConfig, data, "serial"),
+            webradio=_build(WebradioConfig, data, "webradio"),
         )
 
 
@@ -124,6 +126,24 @@ def _section(data: Dict[str, Any], key: str) -> Dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"Expected section '{key}' to be a table")
     return value
+
+
+def _build(cls, data: Dict[str, Any], key: str):
+    """Build a config dataclass from a section, ignoring unknown keys.
+
+    Tolerating unknown keys means a stale field in a deployed config.toml (e.g.
+    a removed option like the old `tls`) never bricks startup on a field unit —
+    it's dropped with a warning instead of raising TypeError.
+    """
+    section = _section(data, key)
+    known = {f.name for f in fields(cls)}
+    kwargs = {}
+    for k, v in section.items():
+        if k in known:
+            kwargs[k] = v
+        else:
+            logger.warning("Ignoring unknown config key '%s.%s'", key, k)
+    return cls(**kwargs)
 
 
 def load_config(path: str | Path, validate: bool = True) -> AppConfig:

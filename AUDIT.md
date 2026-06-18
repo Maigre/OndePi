@@ -186,10 +186,21 @@ PortAudio thread; longer term a single full-duplex `sd.Stream` removes the
 blocking monitor write-in-callback. Remaining audio polish: gain ramping; a real
 look-ahead limiter.
 
-**Phase 3 — Harden weak uplink**
-9. Fast, race-free reconnect (clean mount release, jittered backoff, pinned-IP / local caching resolver).
-10. Resolve the `tls` flag end-to-end (wire it or delete it).
-11. Distinguish interface churn from ffmpeg crashes; recover without full teardown.
+**Phase 3 — Harden weak uplink (DONE)**
+9. ✅ Jittered reconnect backoff (±20%) to avoid lock-step reconnect storms.
+10. ✅ Removed the dead `tls` flag end-to-end (it was a no-op; the source push is
+    plain Icecast to a Liquidsoap harbor). Config loading is now **tolerant of
+    unknown keys** (warns + drops) so removing a field — or a stale key on a
+    deployed unit — never bricks startup.
+11. ✅ Reconnect is coupled to the connectivity doctor: when the uplink is down
+    (`uplink_ok is False`) the streamer holds the reconnect instead of burning it
+    into a dead network, and fires immediately when the link returns (capped at
+    60 s so a stuck doctor can't block forever). Combined with Phase 1's
+    `-rw_timeout`, interface churn (tethering/Starlink drop) now recovers fast
+    without a full teardown, rather than eating connect timeouts.
+
+Deferred (lower value here): pinned-IP/local caching resolver — the doctor
+coupling + bounded DNS already cover the failure we actually saw.
 
 **Phase 4 — Security & packaging**
 12. API auth + secret masking + bind option; cap `/api/listen` concurrency.

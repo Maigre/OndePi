@@ -29,7 +29,8 @@ bitrate_mode = "cbr" # cbr|vbr
 server = "icecast.example.com"
 port = 8000
 mount = "live"
-tls = true
+# NOTE: the source connection is plain Icecast protocol (ffmpeg icecast://);
+# there is no TLS on the source push. Front the server with TLS if you need it.
 username = "source"
 password = "change-me"
 icy = true

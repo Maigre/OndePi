@@ -1,5 +1,15 @@
-from ondepi.config import ensure_config, load_config
+from ondepi.config import AppConfig, ensure_config, load_config
 from ondepi.state import StreamState
+
+
+def test_from_dict_ignores_unknown_keys():
+    # A stale/removed key (e.g. the old `tls`) or a typo must not break loading.
+    cfg = AppConfig.from_dict(
+        {"stream": {"server": "x", "mount": "m", "tls": True, "bogus": 1}}
+    )
+    assert cfg.stream.server == "x"
+    assert cfg.stream.mount == "m"
+    assert not hasattr(cfg.stream, "tls")
 
 
 def test_load_config(tmp_path):
