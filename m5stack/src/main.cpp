@@ -57,7 +57,10 @@ void handleButtons() {
             // Long press detected - send command once
             bool cooldownActive = (now - state.lastCommandAt < COMMAND_COOLDOWN_MS);
             if (!disconnected && !cooldownActive && state.pendingAction == PENDING_NONE) {
-                if (state.status.streaming) {
+                // "active" includes connecting/retrying, so a hold while the
+                // server is mid-connect stops it rather than re-issuing start.
+                bool active = state.status.streaming || state.status.streamingRequested;
+                if (active) {
                     protocol.sendStop();
                     state.pendingAction = PENDING_STOP;
                 } else {

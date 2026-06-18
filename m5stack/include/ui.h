@@ -167,39 +167,51 @@ private:
         M5.Display.setTextDatum(ML_DATUM);
         M5.Display.drawString("OndePi", 10, centerY);
 
-        // Center: uplink indicator (small colored text)
+        // Center: uplink indicator (small colored text; shows reason on failure)
         M5.Display.setTextSize(1);
         M5.Display.setTextDatum(MC_DATUM);
-        if (!state.status.uplinkChecked) {
-            M5.Display.setTextColor(COLOR_TEXT_DIM, COLOR_HEADER_BG);
-            M5.Display.drawString("UPLINK", SCREEN_WIDTH / 2, centerY);
-        } else if (state.status.uplinkOk) {
-            M5.Display.setTextColor(COLOR_UPLINK_OK, COLOR_HEADER_BG);
-            M5.Display.drawString("UPLINK", SCREEN_WIDTH / 2, centerY);
-        } else {
-            M5.Display.setTextColor(COLOR_UPLINK_FAIL, COLOR_HEADER_BG);
-            M5.Display.drawString("UPLINK", SCREEN_WIDTH / 2, centerY);
+        String uplinkText = "UPLINK";
+        uint16_t uplinkColor = COLOR_TEXT_DIM;
+        if (state.status.uplinkChecked) {
+            if (state.status.uplinkOk) {
+                uplinkColor = COLOR_UPLINK_OK;
+            } else {
+                uplinkColor = COLOR_UPLINK_FAIL;
+                const String& r = state.status.uplinkReason;
+                if (r == "dns_failed") uplinkText = "UPLINK:DNS";
+                else if (r == "no_internet") uplinkText = "UPLINK:NET";
+                else if (r == "server_unreachable") uplinkText = "UPLINK:SRV";
+            }
         }
+        M5.Display.setTextColor(uplinkColor, COLOR_HEADER_BG);
+        M5.Display.drawString(uplinkText, SCREEN_WIDTH / 2, centerY);
 
-        // Right: streaming status with dot
+        // Right: streaming status with dot — driven by the server phase, with a
+        // legacy fallback for servers that don't send one.
         M5.Display.setTextSize(2);
         String statusText;
-        if (state.pendingAction == PENDING_START) {
-            statusText = "STARTING";
-        } else if (state.pendingAction == PENDING_STOP) {
-            statusText = "STOPPING";
-        } else if (!state.status.streaming && state.status.streamingRequested && !state.status.error.isEmpty()) {
-            statusText = "ERROR";
-        } else {
-            statusText = state.status.streaming ? "STREAMING" : "STOPPED";
-        }
         uint16_t dotColor = COLOR_STOPPED;
-        if (state.pendingAction != PENDING_NONE) {
-            dotColor = COLOR_METER_MID;
-        } else if (!state.status.streaming && state.status.streamingRequested && !state.status.error.isEmpty()) {
-            dotColor = COLOR_ERROR;
-        } else if (state.status.streaming) {
-            dotColor = COLOR_STREAMING;
+        if (state.pendingAction == PENDING_START) {
+            statusText = "STARTING"; dotColor = COLOR_METER_MID;
+        } else if (state.pendingAction == PENDING_STOP) {
+            statusText = "STOPPING"; dotColor = COLOR_METER_MID;
+        } else {
+            const String& ph = state.status.phase;
+            if (ph == "live") {
+                statusText = "STREAMING"; dotColor = COLOR_STREAMING;
+            } else if (ph == "connecting") {
+                statusText = "CONNECT"; dotColor = COLOR_METER_MID;
+            } else if (ph == "stalled") {
+                statusText = "RETRY"; dotColor = COLOR_METER_MID;
+            } else if (ph == "error") {
+                statusText = "ERROR"; dotColor = COLOR_ERROR;
+            } else if (!state.status.streaming && state.status.streamingRequested && !state.status.error.isEmpty()) {
+                statusText = "ERROR"; dotColor = COLOR_ERROR;
+            } else if (state.status.streaming) {
+                statusText = "STREAMING"; dotColor = COLOR_STREAMING;
+            } else {
+                statusText = "STOPPED"; dotColor = COLOR_STOPPED;
+            }
         }
 
         M5.Display.setTextDatum(MR_DATUM);
@@ -456,7 +468,8 @@ private:
         if (state.pendingAction != PENDING_NONE) {
             btnBText = "WAIT...";
         } else {
-            btnBText = state.status.streaming ? "HOLD:STOP" : "HOLD:START";
+            bool active = state.status.streaming || state.status.streamingRequested;
+            btnBText = active ? "HOLD:STOP" : "HOLD:START";
         }
         M5.Display.drawString(btnBText, 160, FOOTER_Y + FOOTER_HEIGHT / 2);
         

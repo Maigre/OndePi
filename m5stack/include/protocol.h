@@ -120,7 +120,18 @@ private:
         bool wasStreaming = state.status.streaming;
         bool newStreaming = doc["streaming"] | false;
         bool newStreamingRequested = doc["streaming_requested"] | false;
-        
+
+        // Phase is the server's source of truth (stopped/connecting/live/
+        // stalled/error). Older servers omit it — keep "" and fall back to the
+        // streaming/error booleans in the UI.
+        String newPhase = state.status.phase;
+        if (doc["phase"].is<const char*>()) {
+            newPhase = doc["phase"].as<String>();
+        }
+        if (doc["uplink_reason"].is<const char*>()) {
+            state.status.uplinkReason = doc["uplink_reason"].as<String>();
+        }
+
         // Handle duration from server
         unsigned long newDuration = state.status.duration;
         if (doc["duration"].is<unsigned long>()) {
@@ -145,6 +156,7 @@ private:
         // Only trigger full redraw if something visually changed
         bool changed = (newStreaming != wasStreaming);
         if (newError != state.status.error) changed = true;
+        if (newPhase != state.status.phase) changed = true;
         
         // Timestamp new errors for auto-clear (before overwriting state)
         if (!newError.isEmpty() && newError != state.status.error) {
@@ -155,6 +167,7 @@ private:
 
         state.status.streaming = newStreaming;
         state.status.streamingRequested = newStreamingRequested;
+        state.status.phase = newPhase;
         state.status.connected = true;
         state.status.duration = newDuration;
         state.status.error = newError;
@@ -169,11 +182,15 @@ private:
             state.status.uplinkChecked = true;
         }
 
-        // Resolve pending command when status updates or error arrives
+        // Resolve pending command when status updates or error arrives.
+        // With phases, a start is "accepted" as soon as the server leaves
+        // "stopped" (connecting), so the STARTING hint clears promptly.
         if (state.pendingAction != PENDING_NONE) {
             bool resolved = (state.status.error.length() > 0);
-            if (state.pendingAction == PENDING_START && newStreaming) resolved = true;
-            if (state.pendingAction == PENDING_STOP && !newStreaming) resolved = true;
+            bool started = newStreaming || (newPhase.length() > 0 && newPhase != "stopped");
+            bool stopped = !newStreaming && (newPhase.length() == 0 || newPhase == "stopped");
+            if (state.pendingAction == PENDING_START && started) resolved = true;
+            if (state.pendingAction == PENDING_STOP && stopped) resolved = true;
             if (resolved) {
                 state.pendingAction = PENDING_NONE;
                 state.needsFullRedraw = true;

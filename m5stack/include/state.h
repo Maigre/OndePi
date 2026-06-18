@@ -37,6 +37,8 @@ struct StreamStatus {
     bool connected = false;
     bool uplinkOk = false;
     bool uplinkChecked = false;
+    String phase = "";          // stopped|connecting|live|stalled|error ("" = legacy server)
+    String uplinkReason = "";   // ok|no_internet|dns_failed|server_unreachable
     String error = "";
     String dismissedError = "";  // Last auto-expired error (ignore if server re-sends)
     unsigned long startTime = 0;  // millis() when streaming started
