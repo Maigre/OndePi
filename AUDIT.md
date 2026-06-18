@@ -212,9 +212,22 @@ coupling + bounded DNS already cover the failure we actually saw.
 13. `web/` `WorkingDirectory` already fixed (install.sh). Remaining: stop
     committing a generated systemd unit; versioned releases + update path.
 
-**Phase 5 — Robustness polish**
-14. Pin audio device by name; fix/guard `test_input`; revisit the M5Stack `os._exit` hammer.
-15. Tests for API + retry/monitor state machine + config round-trip; refresh `docs/architecture.md`.
+**Phase 5 — Robustness polish (mostly DONE)**
+14. ✅ Pin audio device by **name** (stable substring, strips `(hw:C,D)`; survives
+    reindex). ✅ `test_input` reports live engine levels (no more "device busy").
+    ⚠️ M5Stack `os._exit` hammer: **hot-plug test** (Pi 3B+) showed the process
+    survived (no SIGABRT this time) but audio **lagged and didn't self-recover**
+    — the Pi's single USB controller means re-enumerating the M5 disturbs the
+    USB-audio isochronous transfers (hardware). So the full-restart recovery is
+    kept for now. Fixed a real bug found en route: the serial-sender thread died
+    on unplug from an uncaught `termios.error` in `flush()`.
+    Next (optional, needs another hot-plug test): replace `os._exit` with an
+    **in-process recovery** — restart the AudioEngine + WebradioPlayer (reopens
+    the ALSA device, clearing the lag) instead of killing the process, which
+    could keep the live stream up across an M5 hot-plug.
+15. ✅ CI added (pytest on push/PR) + tests (config round-trip/tolerant load,
+    redaction, stall/wait-for-uplink). ✅ `docs/architecture.md` refreshed.
+    Remaining: deeper API endpoint tests via FastAPI TestClient.
 
 ---
 
