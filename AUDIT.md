@@ -140,20 +140,28 @@ In likely order:
 
 **Phase 2 — Kill the clicks (IN PROGRESS — instrument + first structural fix)**
 
-Diagnosis (from operator report: discrete clicks 1–10 s apart, worse at higher
-level, "chunk junction"; reference unit is a **Pi 3B+**):
+**Box role (corrected):** this is a full-duplex audio box. It **always** plays
+webradio → audio-interface **output** → hardware **FM transmitter**, *and*
+(when live) captures the audio-interface **input** → server `/input`. The two
+ffmpegs are by design; webradio must keep running during a live stream.
+
+Diagnosis (operator report: discrete clicks 1–10 s apart, worse at higher level,
+"chunk junction"; reference unit is a **Pi 3B+**):
 - The `tanh` limiter is memoryless/continuous → it **cannot** produce discrete
   clicks; ruled out.
 - "Worse at higher level" ⇒ a fixed-size **sample discontinuity** (inaudible
-  when quiet, a loud click when hot). Only two sources exist in this pipeline:
-  **input xruns** (ALSA capture overflow) or **ring-buffer drops** (encoder/
-  uplink can't keep up).
-- The previous revamp left a `logger.warning()` **inside the RT audio callback**
-  (journald I/O in the real-time thread) — itself an xrun source — and input
-  overflows were logged only at DEBUG (invisible).
-- **Webradio kept decoding+playing during a live stream** (`stream/start` never
-  stopped it) ⇒ two ffmpegs + full-duplex on the USB codec on a Pi 3B+ → a
-  textbook cause of periodic capture xruns whose audibility scales with level.
+  when quiet, a loud click when hot).
+- **Leading hypothesis — clock drift between two independent streams on one
+  device.** Capture (`sd.InputStream`) and webradio playback (`sd.OutputStream`)
+  open the *same* ALSA device as two separate PortAudio streams with
+  independent clocks. They slip relative to each other; each slip is a
+  buffer over/under-run = a periodic-but-irregular glitch — a strong match for
+  "1–10 s apart, no obvious logic." The monitor path makes it worse by doing a
+  **blocking `output_stream.write()` inside the input callback**.
+- Secondary: input xruns under CPU contention (two ffmpegs on a Pi 3B+).
+- The previous revamp also left a `logger.warning()` **inside the RT audio
+  callback** (journald I/O in the real-time thread) — itself an xrun source —
+  and input overflows were logged only at DEBUG (invisible).
 
 Done in this pass:
 6. ✅ RT-callback hygiene: removed all logging from `_callback`; cheap counters
@@ -161,13 +169,17 @@ Done in this pass:
 7. ✅ Observability: `last_overflow_at` in `/api/status`; the web UI log panel
    now distinguishes **"input xrun"** vs **"buffer drop"** so a heard click maps
    to a cause.
-8. ✅ Structural fix: webradio is gated off while streaming/monitoring
-   (idempotent), removing the 2nd ffmpeg + full-duplex contention.
 
-Remaining (next): if xruns persist with webradio gated, raise input resilience
-(larger/explicit `blocksize`, RT thread priority via `LimitRTPRIO` +
-`SCHED_FIFO`); make any unavoidable drop graceful (silence/crossfade vs raw
-splice); ramp gain; replace `tanh` with a proper look-ahead limiter.
+Reverted: an earlier attempt gated webradio off while streaming — **wrong**, it
+would cut the FM-transmitter feed during a live stream. Webradio vs input-monitor
+on the output is switched only by the monitor toggle, never by streaming state.
+
+Primary fix (next, needs on-device testing): **unify capture + playback into a
+single full-duplex `sd.Stream`** (one shared clock, one callback that reads input
+and writes the webradio/monitor output) — removes the two-clock drift and the
+blocking write-in-callback. Cheaper interim levers: explicit larger `blocksize`
++ RT thread priority (`SCHED_FIFO` / systemd `CPUSchedulingPolicy`); graceful
+(silence/crossfade) drops; gain ramping; a real look-ahead limiter.
 
 **Phase 3 — Harden weak uplink**
 9. Fast, race-free reconnect (clean mount release, jittered backoff, pinned-IP / local caching resolver).
