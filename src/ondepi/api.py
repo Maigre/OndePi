@@ -109,37 +109,22 @@ class ApiService:
 
         @app.post("/api/test-input")
         def test_input() -> dict:
-            # Can't test while streaming - device is in use
-            if self._streamer.status().get("running"):
-                raise HTTPException(
-                    status_code=409,
-                    detail="Cannot test input while streaming. Stop the stream first.",
-                )
-            try:
-                cfg = self._config.input
-                device = cfg.alsa_device
-                # Ensure device is an integer index or None
-                if isinstance(device, str):
-                    device = None
-                frames = int(cfg.sample_rate * 0.5)  # 0.5 second test
-                recording = sd.rec(
-                    frames,
-                    samplerate=cfg.sample_rate,
-                    channels=cfg.channels,
-                    dtype="float32",
-                    device=device,
-                )
-                sd.wait()
-                rms = float(np.sqrt(np.mean(np.square(recording))))
-                peak = float(np.max(np.abs(recording)))
-                return {"rms": rms, "peak": peak}
-            except sd.PortAudioError as exc:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Audio device error: {exc}. Try a different device.",
-                ) from exc
-            except Exception as exc:
-                raise HTTPException(status_code=500, detail=str(exc)) from exc
+            # The audio engine already holds the (exclusive) input device, so we
+            # cannot open a second recording stream (the old code did and failed
+            # with "device busy"). Sample the live meters instead — this works
+            # whether idle, monitoring, or streaming.
+            if not self._audio_engine:
+                raise HTTPException(status_code=503, detail="Audio engine not running")
+            if self._audio_engine.device_status().get("status") != "connected":
+                raise HTTPException(status_code=409, detail="Input device not connected")
+            rms = 0.0
+            peak = 0.0
+            for _ in range(10):  # ~0.5 s window of live levels
+                lv = self._state.levels
+                rms = max(rms, (lv.rms_left + lv.rms_right) / 2.0)
+                peak = max(peak, lv.peak_left, lv.peak_right)
+                time.sleep(0.05)
+            return {"rms": rms, "peak": peak}
 
         @app.post("/api/stream/start")
         def start() -> dict:
@@ -241,13 +226,19 @@ class ApiService:
             enabled = payload.get("enabled", False)
             actual = False
             if enabled:
-                # Stop webradio, enable monitoring
+                # Switch the output from webradio to live input monitor.
                 if self._webradio:
                     self._webradio.stop()
                 if self._audio_engine:
                     actual = self._audio_engine.set_monitor(True)
+                if not actual:
+                    # Monitor failed to open — don't leave the output (and FM)
+                    # silent; bring webradio back.
+                    logger.warning("Monitor enable failed; restoring webradio")
+                    if self._webradio and self._config.webradio.url:
+                        self._webradio.start()
             else:
-                # Disable monitoring, start webradio
+                # Switch the output back to webradio.
                 if self._audio_engine:
                     self._audio_engine.set_monitor(False)
                 if self._webradio and self._config.webradio.url:

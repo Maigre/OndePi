@@ -243,74 +243,49 @@ const InputClipIndicator = {
   }
 };
 
+// Simple click toggle: switches the audio-interface output (headphone + FM)
+// between webradio playback (off) and live input monitor (on). The old
+// hold/double-click-to-lock model was fragile (mouseleave cancelled it, touch
+// double-fired) and felt broken.
 const MonitorControl = {
   enabled: false,
-  locked: false,
-  _releaseTimer: null,
-  _unlocking: false,
+  _busy: false,
   init() {
     const btn = document.getElementById("btn-monitor");
-    btn.addEventListener("mousedown", (e) => { e.preventDefault(); this.onPress(); });
-    btn.addEventListener("mouseup", () => this.onRelease());
-    btn.addEventListener("mouseleave", () => this.onRelease());
-    btn.addEventListener("touchstart", (e) => { e.preventDefault(); this.onPress(); });
-    btn.addEventListener("touchend", (e) => { e.preventDefault(); this.onRelease(); });
-    btn.addEventListener("dblclick", (e) => { e.preventDefault(); this.onDblClick(); });
+    btn.addEventListener("click", (e) => { e.preventDefault(); this.toggle(); });
     btn.addEventListener("contextmenu", (e) => e.preventDefault());
   },
-  onPress() {
-    if (this._releaseTimer) {
-      clearTimeout(this._releaseTimer);
-      this._releaseTimer = null;
-    }
-    if (this.locked) {
-      this.locked = false;
-      this._unlocking = true;
-      this.setMonitor(false);
-      Toast.show("Monitor unlocked", "success");
-      return;
-    }
-    this._unlocking = false;
-    this.setMonitor(true);
-  },
-  onRelease() {
-    if (this.locked || this._unlocking) return;
-    if (!this.enabled) return;
-    this._releaseTimer = setTimeout(() => {
-      this._releaseTimer = null;
-      if (!this.locked) {
-        this.setMonitor(false);
-      }
-    }, 300);
-  },
-  onDblClick() {
-    if (this._releaseTimer) {
-      clearTimeout(this._releaseTimer);
-      this._releaseTimer = null;
-    }
-    this.locked = true;
-    this.setMonitor(true);
-    Toast.show("Monitor locked", "success");
+  async toggle() {
+    if (this._busy) return;
+    this._busy = true;
+    const target = !this.enabled;
+    // Optimistic UI so the button feels responsive.
+    this.enabled = target;
     this.updateUI();
-  },
-  async setMonitor(enabled) {
     try {
-      const res = await API.post("monitor", { enabled });
+      const res = await API.post("monitor", { enabled: target });
       this.enabled = !!res.enabled;
-      if (!this.enabled) this.locked = false;
       this.updateUI();
+      if (target && !this.enabled) {
+        Toast.show("Monitor failed (device busy?)", "error");
+      } else {
+        Toast.show(this.enabled ? "Monitoring input" : "Playing webradio", "success");
+      }
     } catch (e) {
-      // ignore errors
+      this.enabled = !target;
+      this.updateUI();
+      Toast.show("Monitor toggle failed", "error");
+    } finally {
+      this._busy = false;
     }
   },
   updateUI() {
-    const btn = document.getElementById("btn-monitor");
-    btn.classList.toggle("active", this.enabled);
-    btn.classList.toggle("locked", this.locked);
+    document.getElementById("btn-monitor").classList.toggle("active", this.enabled);
   },
   setValue(enabled) {
+    // Sync from server truth, but don't stomp a toggle that's in flight.
+    if (this._busy) return;
     this.enabled = enabled;
-    if (!enabled) this.locked = false;
     this.updateUI();
   }
 };
@@ -372,22 +347,26 @@ const DeviceSelector = {
   },
   render() {
     const sel = document.getElementById("device-select");
-    const current = AppState.config?.input?.alsa_device || "";
-    sel.innerHTML = AppState.devices.map(d =>
-      "<option value='" + d.id + "'" + (String(d.id) === String(current) || d.name === current ? " selected" : "") + ">" + d.name + "</option>"
-    ).join("") || "<option>No devices</option>";
+    const current = AppState.config?.input?.alsa_device;
+    const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    sel.innerHTML = AppState.devices.map(d => {
+      // current may be a name (new) or a legacy index (old configs).
+      const selected = (d.name === current || String(d.id) === String(current)) ? " selected" : "";
+      return "<option value='" + d.id + "'" + selected + ">" + esc(d.name) + "</option>";
+    }).join("") || "<option>No devices</option>";
   },
   async select(deviceId) {
     try {
-      const id = parseInt(deviceId);
-      const device = (AppState.devices || []).find(d => String(d.id) === String(id));
-      const channels = device && device.channels === 1
-        ? 1
-        : (AppState.config?.input?.channels || 2);
-      await API.patch("config", { input: { alsa_device: id, channels } });
+      const device = (AppState.devices || []).find(d => String(d.id) === String(deviceId));
+      if (!device) return;
+      const channels = device.channels === 1 ? 1 : (AppState.config?.input?.channels || 2);
+      // Store the device NAME, not the index — sounddevice matches by name, so
+      // the selection survives index reshuffles on reboot / USB replug.
+      await API.patch("config", { input: { alsa_device: device.name, channels } });
       if (AppState.config) {
         if (!AppState.config.input) AppState.config.input = {};
-        AppState.config.input.alsa_device = id;
+        AppState.config.input.alsa_device = device.name;
         AppState.config.input.channels = channels;
       }
       Toast.show("Device applied", "success");

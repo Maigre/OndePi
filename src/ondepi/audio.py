@@ -185,6 +185,7 @@ class AudioEngine:
                     channels=self._input_cfg.channels,
                     dtype="float32",
                     device=self._input_cfg.alsa_device or None,
+                    latency=self._input_cfg.latency,
                 )
                 self._output_stream.start()
                 self._monitor_enabled = True
