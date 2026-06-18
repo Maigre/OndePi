@@ -401,7 +401,7 @@ const StreamControls = {
     document.getElementById("btn-connect").addEventListener("click", () => this.toggle());
   },
   async toggle() {
-    if (this.state === "streaming") {
+    if (this.state === "streaming" || this.state === "stalled") {
       await this.stop();
     } else if (this.state === "stopped" || this.state === "error") {
       await this.connect();
@@ -472,6 +472,11 @@ const StreamControls = {
       text.textContent = "Connecting...";
       btn.textContent = "Connecting...";
       btn.classList.add("btn-warn");
+    } else if (state === "stalled") {
+      dot.classList.add("connecting");
+      text.textContent = "Reconnecting…";
+      btn.textContent = "Stop";
+      btn.classList.add("btn-warn");
     } else if (state === "error") {
       dot.classList.add("error");
       text.textContent = "Error";
@@ -483,7 +488,14 @@ const StreamControls = {
       btn.classList.add("btn-success");
     }
   },
-  update(streaming, streamingRequested, lastError) {
+  // `phase` (stopped|connecting|live|stalled|error) is the server's source of
+  // truth; fall back to the legacy streaming flag if it's absent.
+  update(phase, streaming, streamingRequested, lastError) {
+    if (phase) {
+      const map = { live: "streaming", connecting: "connecting", stalled: "stalled", error: "error", stopped: "stopped" };
+      this.setState(map[phase] || "stopped");
+      return;
+    }
     if (streaming && this.state !== "streaming") {
       this.setState("streaming");
     } else if (!streaming && streamingRequested && lastError) {
@@ -674,7 +686,7 @@ const StatusUpdater = {
           }
         }
       }
-      StreamControls.update(state.streaming || false, state.streaming_requested || false, state.last_error);
+      StreamControls.update(state.stream_phase, state.streaming || false, state.streaming_requested || false, state.last_error);
   AppState.streaming = !!state.streaming;
       if (s.device) {
         const btn = document.getElementById("btn-connect");
@@ -736,17 +748,37 @@ const StatusUpdater = {
       }
     document.getElementById("retry-count").textContent = state.retry_count || 0;
     document.getElementById("dropout-count").textContent = s.device?.overflow_count || 0;
-      // Uplink status
+      // Uplink status — show *why* it's down, not just that it is.
       const uplinkEl = document.getElementById("uplink-status");
-      if (state.uplink_ok === true) {
+      const up = state.uplink || {};
+      const REASONS = {
+        ok: ["OK", "Source server reachable", "uplink-ok"],
+        no_internet: ["NO NET", "No internet uplink (link/tethering down)", "uplink-fail"],
+        dns_failed: ["DNS", "Internet OK but server name won't resolve (check DNS)", "uplink-fail"],
+        server_unreachable: ["SERVER", "Internet + DNS OK but server port unreachable", "uplink-fail"],
+        not_configured: ["--", "No server configured", "uplink-ind"]
+      };
+      if (up.reason && REASONS[up.reason]) {
+        const [label, title, cls] = REASONS[up.reason];
+        if (up.reason === "ok" && up.latency_ms != null) {
+          uplinkEl.textContent = "OK " + Math.round(up.latency_ms) + "ms";
+        } else {
+          uplinkEl.textContent = label;
+        }
+        uplinkEl.className = "uplink-ind " + cls;
+        uplinkEl.title = title + (up.resolved_ip ? " (" + up.resolved_ip + ")" : "");
+      } else if (state.uplink_ok === true) {
         uplinkEl.textContent = "OK";
         uplinkEl.className = "uplink-ind uplink-ok";
+        uplinkEl.title = "";
       } else if (state.uplink_ok === false) {
         uplinkEl.textContent = "FAIL";
         uplinkEl.className = "uplink-ind uplink-fail";
+        uplinkEl.title = "";
       } else {
         uplinkEl.textContent = "--";
         uplinkEl.className = "uplink-ind";
+        uplinkEl.title = "";
       }
       this.setConnection(true);
       if (state.last_error) {

@@ -17,11 +17,14 @@ from .config import (
     load_config,
     validation_errors,
 )
+from .logging_setup import configure_logging
 from .serial_bridge import SerialBridge
 from .state import StreamState
 from .streamer import Streamer
 from .uplink import UplinkChecker
 from .webradio import WebradioPlayer
+
+logger = logging.getLogger(__name__)
 
 
 class EndpointFilter(logging.Filter):
@@ -47,6 +50,12 @@ def main() -> None:
         print(f"Created default config at {config_path}.")
 
     config = load_config(config_path, validate=False)
+    level = configure_logging(config.general.log_level)
+    logger.info(
+        "OndePi starting (config=%s, log_level=%s)",
+        config_path,
+        logging.getLevelName(level),
+    )
     if created and sys.stdin.isatty():
         try:
             config = interactive_setup(config, config_path)

@@ -19,6 +19,18 @@ from .state import StreamState
 
 logger = logging.getLogger(__name__)
 
+# ffmpeg AVIO read/write timeout for the Icecast output (microseconds). Without
+# it, a black-holed / half-open uplink keeps ffmpeg "alive" (and the indicator
+# falsely "streaming") until the kernel TCP timeout — tens of seconds. With it,
+# ffmpeg errors out promptly and the retry loop reconnects.
+OUTPUT_RW_TIMEOUT_US = 15_000_000
+
+# Stall detection: if audio is backing up (buffer >= this fraction of capacity)
+# and the writer hasn't drained anything into ffmpeg for STALL_TIMEOUT seconds,
+# the uplink is wedged even though ffmpeg hasn't exited — force a reconnect.
+STALL_BUFFER_FRACTION = 0.5
+STALL_TIMEOUT = 8.0
+
 
 @dataclass
 class StreamProcess:
@@ -101,6 +113,7 @@ class Streamer:
         self._dropped_audio_chunks = 0
         self._dropped_audio_frames = 0
         self._last_drop_log_at = 0.0
+        self._last_write_at = 0.0
 
     def build_ffmpeg_command(self) -> List[str]:
         stream = self._config.stream
@@ -156,6 +169,8 @@ class Streamer:
             stream.format,
             "-content_type",
             _content_type_for_format(stream.format),
+            "-rw_timeout",
+            str(OUTPUT_RW_TIMEOUT_US),
             output_url,
         ]
         return cmd
@@ -169,7 +184,9 @@ class Streamer:
         self._dropped_audio_chunks = 0
         self._dropped_audio_frames = 0
         self._last_drop_log_at = 0.0
+        self._last_write_at = time.monotonic()
         self._state.streaming_requested = True
+        self._state.stream_phase = "connecting"
         self._state.retry_count = 0
         self._state.last_retry_at = None
         self._state.last_exit_code = None
@@ -202,6 +219,7 @@ class Streamer:
             self._monitor_thread.join(timeout=5.0)
         self._monitor_thread = None
         self._state.streaming = False
+        self._state.stream_phase = "stopped"
         self._state.started_at = None
 
     def status(self) -> dict:
@@ -230,6 +248,8 @@ class Streamer:
     def _start_process(self, is_retry: bool) -> None:
         logger.info("Starting ffmpeg process (retry=%s, attempt=%d)",
                     is_retry, self._state.retry_count)
+        self._state.stream_phase = "connecting"
+        self._last_write_at = time.monotonic()
         command = self.build_ffmpeg_command()
         process = subprocess.Popen(
             command,
@@ -300,9 +320,14 @@ class Streamer:
                 break
             time.sleep(0.25)
 
+        stalled = False
         if connected:
             logger.info("ffmpeg connected to Icecast successfully")
             self._state.streaming = True
+            self._state.stream_phase = "live"
+            # Stay honest after the grace period: keep watching for errors and
+            # for an uplink stall (ffmpeg alive but no data reaching the server).
+            stalled = self._watch_live(process, stderr_error)
         else:
             logger.warning("ffmpeg did not connect within grace period (stop_event=%s, poll=%s)",
                            self._stop_event.is_set(), process.poll())
@@ -324,7 +349,10 @@ class Streamer:
             logger.info("ffmpeg stopped by user request (exit_code=%s)", exit_code)
             return
 
-        message = _parse_ffmpeg_error(exit_code, stderr)
+        if stalled:
+            message = "Uplink stalled — no data reaching the server, reconnecting"
+        else:
+            message = _parse_ffmpeg_error(exit_code, stderr)
         logger.error("Stream failed (exit_code=%s, was_streaming=%s): %s",
                      exit_code, was_streaming, message)
         if stderr:
@@ -334,6 +362,7 @@ class Streamer:
 
         if not self._config.general.reconnect:
             logger.info("Reconnect disabled, not retrying")
+            self._state.stream_phase = "error"
             return
 
         if self._config.general.retry_max_attempts and (
@@ -341,10 +370,12 @@ class Streamer:
         ):
             logger.warning("Max retry attempts (%d) reached, giving up",
                            self._config.general.retry_max_attempts)
+            self._state.stream_phase = "error"
             return
 
         self._state.retry_count += 1
         self._state.last_retry_at = datetime.utcnow()
+        self._state.stream_phase = "connecting"
         self._retrying = True
         delay = _retry_delay(
             self._state.retry_count,
@@ -359,6 +390,50 @@ class Streamer:
             return
         self._retrying = False
         self._start_process(is_retry=True)
+
+    def _watch_live(self, process, stderr_error: threading.Event) -> bool:
+        """Watch a connected ffmpeg until it exits, errors, stalls, or we stop.
+
+        Returns True if we terminated ffmpeg because the uplink stalled (so the
+        caller can report a stall rather than a generic ffmpeg failure).
+        """
+        while True:
+            if self._stop_event.is_set():
+                return False
+            if process.poll() is not None:
+                return False
+            if stderr_error.is_set():
+                logger.warning("ffmpeg reported an error after connect — terminating to reconnect")
+                self._terminate_process(process)
+                return False
+            if self._is_stalled():
+                q = self._audio_queue
+                logger.warning(
+                    "Uplink stalled (buffer=%d/%d frames, no drain for >%.0fs) — reconnecting",
+                    q.frame_count if q else 0,
+                    q.max_frames if q else 0,
+                    STALL_TIMEOUT,
+                )
+                self._state.stream_phase = "stalled"
+                self._terminate_process(process)
+                return True
+            time.sleep(0.5)
+
+    def _is_stalled(self) -> bool:
+        """True when audio is backing up but the writer isn't draining ffmpeg."""
+        q = self._audio_queue
+        if not q:
+            return False
+        if q.frame_count < STALL_BUFFER_FRACTION * q.max_frames:
+            return False
+        return (time.monotonic() - self._last_write_at) > STALL_TIMEOUT
+
+    @staticmethod
+    def _terminate_process(process) -> None:
+        try:
+            process.terminate()
+        except Exception:
+            pass
 
     def _build_audio_consumer(self, stdin) -> Callable:
         # Use a queue to decouple the real-time audio callback from blocking
@@ -391,6 +466,7 @@ class Streamer:
 
         def _writer():
             written = 0
+            self._last_write_at = time.monotonic()
             try:
                 while not self._stop_event.is_set():
                     data = q.get(timeout=0.5)
@@ -412,6 +488,10 @@ class Streamer:
                                 raise BrokenPipeError("ffmpeg stdin closed")
                             view = view[n:]
                         written += 1
+                        # Mark drain progress so the stall detector can tell a
+                        # wedged uplink (writer blocked in os.write) from a
+                        # healthy one.
+                        self._last_write_at = time.monotonic()
                     except Exception as exc:
                         logger.warning("ffmpeg stdin write failed after %d chunks: %s",
                                        written, exc)
