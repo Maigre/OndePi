@@ -36,6 +36,16 @@ def test_is_stalled_predicate():
     assert s._is_stalled() is False
 
 
+def test_redact_password():
+    from ondepi.streamer import _redact
+
+    assert _redact("icecast://u:secret@h/m", "secret") == "icecast://u:******@h/m"
+    # URL-encoded form is redacted too.
+    assert _redact("u:p%40ss@h", "p@ss") == "u:******@h"
+    assert _redact(None, "secret") is None
+    assert _redact("untouched", "") == "untouched"
+
+
 def test_wait_for_uplink():
     import threading
 

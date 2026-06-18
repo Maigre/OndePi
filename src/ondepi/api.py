@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 import numpy as np
 from .config import save_config, validate_config, validation_errors, validation_issues
 
+# Each /api/listen client spawns its own mp3 encoder ffmpeg; cap concurrency so
+# opening the page in many tabs can't exhaust a Pi.
+MAX_LISTENERS = 3
+
 
 class ApiService:
     def __init__(
@@ -42,6 +46,8 @@ class ApiService:
         self._webradio = webradio_player
         self._audio_monitor_stop = False
         self._audio_monitor_thread = None
+        self._listen_lock = threading.Lock()
+        self._listen_count = 0
         self.app = FastAPI(title="OndePi")
         self._register_routes()
 
@@ -151,7 +157,13 @@ class ApiService:
 
         @app.get("/api/config")
         def get_config() -> dict:
-            return self._config.to_dict()
+            # Never send the source password to clients; report only whether one
+            # is set so the UI can show "leave blank to keep".
+            data = self._config.to_dict()
+            stream = data.get("stream", {})
+            stream["password_set"] = bool(stream.get("password"))
+            stream["password"] = ""
+            return data
 
         @app.put("/api/config")
         def update_config(payload: dict) -> dict:
@@ -159,6 +171,9 @@ class ApiService:
                 raise HTTPException(status_code=500, detail="Config path not set")
             try:
                 updated = AppConfig.from_dict(payload)
+                # Blank password = "keep current" (the UI never receives it).
+                if not updated.stream.password:
+                    updated.stream.password = self._config.stream.password
                 validate_config(updated)
                 save_config(updated, self._config_path)
             except Exception as exc:
@@ -188,6 +203,9 @@ class ApiService:
             try:
                 merged = _merge_dicts(self._config.to_dict(), payload)
                 updated = AppConfig.from_dict(merged)
+                # Blank password = "keep current" (the UI never receives it).
+                if not updated.stream.password:
+                    updated.stream.password = self._config.stream.password
                 validate_config(updated)
                 save_config(updated, self._config_path)
             except Exception as exc:
@@ -238,6 +256,10 @@ class ApiService:
 
         @app.get("/api/listen")
         def listen_output():
+            with self._listen_lock:
+                if self._listen_count >= MAX_LISTENERS:
+                    raise HTTPException(status_code=429, detail="Too many listeners")
+                self._listen_count += 1
             sr = self._config.input.sample_rate
             ch = self._config.input.channels
             audio_q: queue.Queue = queue.Queue(maxsize=100)
@@ -304,6 +326,8 @@ class ApiService:
                         self._audio_engine.remove_output_consumer(on_output)
                     if self._webradio:
                         self._webradio.remove_output_consumer(on_output)
+                    with self._listen_lock:
+                        self._listen_count = max(0, self._listen_count - 1)
                     try:
                         proc.terminate()
                         proc.wait(timeout=2)

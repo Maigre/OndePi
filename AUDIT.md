@@ -202,9 +202,15 @@ look-ahead limiter.
 Deferred (lower value here): pinned-IP/local caching resolver — the doctor
 coupling + bounded DNS already cover the failure we actually saw.
 
-**Phase 4 — Security & packaging**
-12. API auth + secret masking + bind option; cap `/api/listen` concurrency.
-13. Fix `web/` path resolution; stop regenerating a worse unit; versioned releases + update path.
+**Phase 4 — Security & packaging (PARTIAL — no-auth by choice)**
+12. ✅ Password no longer leaks: masked in `GET /api/config` (with
+    blank-save-keeps-current so there's no retyping friction), and redacted from
+    `/api/status` (ffmpeg `command` + `last_stderr`) and from logs. `/api/listen`
+    capped at 3 concurrent encoders so it can't exhaust a Pi.
+    ⏭ Auth **intentionally skipped** — LAN is trusted; revisit (token/basic +
+    bind-to-localhost) only if units routinely sit on untrusted networks.
+13. `web/` `WorkingDirectory` already fixed (install.sh). Remaining: stop
+    committing a generated systemd unit; versioned releases + update path.
 
 **Phase 5 — Robustness polish**
 14. Pin audio device by name; fix/guard `test_input`; revisit the M5Stack `os._exit` hammer.

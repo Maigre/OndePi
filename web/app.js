@@ -534,7 +534,10 @@ const ConfigForm = {
     document.getElementById("cfg-port").value = stream.port || "";
     document.getElementById("cfg-mount").value = stream.mount || "";
     document.getElementById("cfg-user").value = stream.username || "source";
-    document.getElementById("cfg-password").value = stream.password || "";
+    // Password is never sent to the client; show it as set, blank = keep current.
+    const pwEl = document.getElementById("cfg-password");
+    pwEl.value = "";
+    pwEl.placeholder = stream.password_set ? "•••••• (leave blank to keep)" : "password";
     document.getElementById("cfg-format").value = stream.format || "mp3";
     document.getElementById("cfg-bitrate").value = stream.bitrate_kbps || 256;
   const webradio = cfg.webradio || {};
@@ -547,7 +550,7 @@ const ConfigForm = {
     const issues = [];
     const stream = cfg.stream || {};
     if (!stream.server) issues.push("Host not set");
-    if (!stream.password) issues.push("Password not set");
+    if (!stream.password && !stream.password_set) issues.push("Password not set");
     if (!stream.mount) issues.push("Mount not set");
     const overlay = document.getElementById("setup-overlay");
     const ul = document.getElementById("setup-issues");

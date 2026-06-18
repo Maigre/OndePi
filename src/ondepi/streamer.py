@@ -235,9 +235,14 @@ class Streamer:
         output_url = None
         if self._config.stream.server and self._config.stream.mount:
             output_url = _masked_output_url(self._config.stream)
+        pw = self._config.stream.password
+        command = (
+            [_redact(tok, pw) for tok in self._process.command]
+            if self._process else None
+        )
         return {
             "running": self._process is not None,
-            "command": self._process.command if self._process else None,
+            "command": command,
             "input": "audio-engine" if self._audio_engine else "alsa",
             "input_device": None if self._audio_engine else self._config.input.alsa_device,
             "output_url": output_url,
@@ -297,7 +302,7 @@ class Streamer:
                     line = raw.decode("utf-8", errors="ignore").rstrip()
                     if line:
                         stderr_lines.append(line)
-                        logger.debug("ffmpeg: %s", line)
+                        logger.debug("ffmpeg: %s", _redact(line, self._config.stream.password))
                         low = line.lower()
                         if any(kw in low for kw in (
                             "error", "401", "403", "refused",
@@ -345,7 +350,8 @@ class Streamer:
         reader.join(timeout=2.0)
 
         exit_code = process.returncode
-        stderr = "\n".join(stderr_lines)
+        # Redact the source password before it can reach logs / the API.
+        stderr = _redact("\n".join(stderr_lines), self._config.stream.password)
         self._last_stderr = stderr or None
         self._cleanup_audio()
         self._process = None
@@ -611,6 +617,17 @@ def _content_type_for_format(fmt: str) -> str:
     if value == "opus":
         return "audio/ogg"
     return value
+
+
+def _redact(text: Optional[str], secret: str) -> Optional[str]:
+    """Replace the source password (raw and URL-encoded) with ****** in text."""
+    if not text or not secret:
+        return text
+    out = text.replace(secret, "******")
+    quoted = quote(secret)
+    if quoted != secret:
+        out = out.replace(quoted, "******")
+    return out
 
 
 def _masked_output_url(stream) -> str:
