@@ -298,6 +298,7 @@ class AudioEngine:
                     dtype="float32",
                     device=self._input_cfg.alsa_device or None,
                     latency="high",
+                    blocksize=int(self._input_cfg.blocksize or 0),
                     callback=self._callback,
                     finished_callback=self._on_finished,
                 )

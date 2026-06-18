@@ -19,6 +19,10 @@ RestartSec=2
 
 Nice=-5
 LimitNOFILE=65536
+# Let PortAudio put the ALSA capture callback on a realtime scheduler so it
+# isn't starved by the concurrent webradio decoder + stream encoder (xruns).
+LimitRTPRIO=95
+LimitMEMLOCK=infinity
 
 StandardOutput=journal
 StandardError=journal

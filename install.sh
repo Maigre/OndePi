@@ -46,12 +46,17 @@ User=$CURRENT_USER
 Group=$CURRENT_GROUP
 SupplementaryGroups=dialout audio
 ExecStart=$BIN_LINK
+WorkingDirectory=$PROJECT_DIR
 
 Restart=always
 RestartSec=10
 
 Nice=-5
 LimitNOFILE=65536
+# Let PortAudio put the ALSA capture callback on a realtime scheduler so it
+# isn't starved by the concurrent webradio decoder + stream encoder (xruns).
+LimitRTPRIO=95
+LimitMEMLOCK=infinity
 
 StandardOutput=journal
 StandardError=journal
