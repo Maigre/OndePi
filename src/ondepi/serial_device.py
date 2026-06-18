@@ -104,7 +104,10 @@ class SerialDevice:
                 data = (json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8")
                 self._serial.write(data)
                 self._serial.flush()
-            except (serial.SerialException, OSError) as exc:
+            except Exception as exc:
+                # Broad: on unplug, pyserial's flush() raises termios.error
+                # (NOT an OSError subclass) which previously killed the sender
+                # thread. Any write failure here means the port is gone.
                 logger.warning("Serial write error: %s", exc)
                 self._connected = False
                 # Close the port so the reader thread wakes up immediately
