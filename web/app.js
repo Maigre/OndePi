@@ -638,6 +638,8 @@ const StatusUpdater = {
   lastError: null,
   errorDismissed: false,
   lastStreaming: null,
+  lastOverflow: null,
+  lastDropped: null,
   lastCommand: null,
   lastInput: null,
   lastStreamError: null,
@@ -748,6 +750,22 @@ const StatusUpdater = {
       }
     document.getElementById("retry-count").textContent = state.retry_count || 0;
     document.getElementById("dropout-count").textContent = s.device?.overflow_count || 0;
+    // Surface audio glitches so a heard "click" can be correlated, and the two
+    // sources told apart: capture xrun vs encoder/uplink buffer drop.
+    const ov = s.device?.overflow_count;
+    if (typeof ov === "number") {
+      if (this.lastOverflow != null && ov > this.lastOverflow) {
+        Logs.add("Audio glitch: input xrun ×" + (ov - this.lastOverflow) + " (capture couldn't keep up)", "warn");
+      }
+      this.lastOverflow = ov;
+    }
+    const dr = s.stream?.audio_dropped_chunks;
+    if (typeof dr === "number") {
+      if (this.lastDropped != null && dr > this.lastDropped) {
+        Logs.add("Audio glitch: buffer drop ×" + (dr - this.lastDropped) + " (encoder/uplink couldn't keep up)", "warn");
+      }
+      this.lastDropped = dr;
+    }
       // Uplink status — show *why* it's down, not just that it is.
       const uplinkEl = document.getElementById("uplink-status");
       const up = state.uplink || {};

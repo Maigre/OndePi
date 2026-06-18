@@ -363,8 +363,8 @@ class ApiService:
                 self._streamer.stop()
             # Only auto-restart if device reconnected, user still wants streaming,
             # and the streamer isn't already running or retrying on its own
-            if (connected and 
-                self._state.streaming_requested and 
+            if (connected and
+                self._state.streaming_requested and
                 not self._state.streaming and
                 not self._streamer.is_busy):
                 logger.info("Audio device reconnected, auto-restarting stream")
@@ -373,6 +373,20 @@ class ApiService:
                 except Exception as exc:
                     logger.error("Auto-restart failed: %s", exc)
                     self._state.last_error = str(exc)
+
+            # Gate webradio: it's local "fallback" playback for when we're NOT
+            # live. Running it during a stream means a 2nd ffmpeg + full-duplex
+            # contention on the audio device — a prime cause of capture xruns
+            # (clicks) on a Pi. Idempotent start()/stop() converge here.
+            if self._webradio and self._config.webradio.url:
+                busy = (self._state.streaming_requested or self._state.streaming
+                        or device_status.get("monitor_enabled", False))
+                if busy and self._webradio.playing:
+                    logger.info("Stopping webradio (streaming/monitoring active)")
+                    self._webradio.stop()
+                elif not busy and not self._webradio.playing:
+                    logger.info("Starting webradio (idle)")
+                    self._webradio.start()
             time.sleep(1)
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from threading import Event, Lock, Thread
 import time
 from typing import Callable, Optional
@@ -103,6 +104,9 @@ class AudioEngine:
         self._device_status = "idle"
         self._last_device_error: Optional[str] = None
         self._overflow_count = 0
+        self._other_status_count = 0
+        self._last_logged_overflow = 0
+        self._last_overflow_at: Optional[datetime] = None
         self._last_stream_status = None
         self._stream_channels = self._input_cfg.channels
 
@@ -198,13 +202,17 @@ class AudioEngine:
         return self._monitor_enabled
 
     def _callback(self, indata, frames, time, status) -> None:  # noqa: ANN001
+        # HOT PATH — keep it lock-free and non-blocking. Do NOT log here: a
+        # logger call writes to journald from the real-time audio thread, which
+        # stalls the callback and *causes* the xruns (audible clicks) we are
+        # trying to avoid. Just bump cheap counters; the non-RT watcher in
+        # _run_loop turns them into timestamped log lines.
         if status:
             self._last_stream_status = str(status)
             if getattr(status, "input_overflow", False):
                 self._overflow_count += 1
-                logger.debug("Audio: %s", status)
             else:
-                logger.warning("Audio: %s", status)
+                self._other_status_count += 1
 
         if indata.size == 0:
             self._state.input_clip = False
@@ -302,6 +310,16 @@ class AudioEngine:
                 logger.info("Audio device '%s' connected (%d ch, %d Hz)", self._input_cfg.alsa_device, channels, self._input_cfg.sample_rate)
                 while self._running.is_set() and stream.active:
                     time.sleep(0.5)
+                    # Non-RT watcher: surface capture xruns (a prime click
+                    # source) that the callback only counts.
+                    if self._overflow_count != self._last_logged_overflow:
+                        delta = self._overflow_count - self._last_logged_overflow
+                        self._last_logged_overflow = self._overflow_count
+                        self._last_overflow_at = datetime.utcnow()
+                        logger.warning(
+                            "Audio input overflow x%d (total %d) — capture glitch / possible click",
+                            delta, self._overflow_count,
+                        )
             except Exception as exc:  # pragma: no cover - runtime only
                 self._state.last_error = f"audio device error: {exc}"
                 self._device_status = "error"
@@ -344,6 +362,7 @@ class AudioEngine:
             "last_error": self._last_device_error,
             "last_stream_status": self._last_stream_status,
             "overflow_count": self._overflow_count,
+            "last_overflow_at": self._last_overflow_at.isoformat() if self._last_overflow_at else None,
             "device_default_rate": device_default_rate,
             "sample_rate_mismatch": sample_rate_mismatch,
             "device": self._input_cfg.alsa_device,

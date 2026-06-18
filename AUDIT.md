@@ -138,10 +138,36 @@ In likely order:
 5. ✅ Honest streaming state: `-rw_timeout` on the ffmpeg output, post-grace error handling, stall detection (buffer-backed-up + no drain), and a `stream_phase` lifecycle (stopped/connecting/live/stalled/error) surfaced to the UI.
 5b. ⏳ *Server-confirmed* LIVE deferred: the reference server is **Liquidsoap harbor**, which has no generic Icecast `status-json.xsl`; true server confirmation needs per-deployment config (e.g. AzuraCast nowplaying API). Hook left for a follow-up.
 
-**Phase 2 — Kill the clicks**
-6. Pre-allocate RT scratch buffers; move metering off the hot path; route monitor through its own ring buffer.
-7. Ramp gain; replace `tanh` with a proper look-ahead limiter.
-8. Make buffer overflow graceful (silence/crossfade); surface drop counters in the UI.
+**Phase 2 — Kill the clicks (IN PROGRESS — instrument + first structural fix)**
+
+Diagnosis (from operator report: discrete clicks 1–10 s apart, worse at higher
+level, "chunk junction"; reference unit is a **Pi 3B+**):
+- The `tanh` limiter is memoryless/continuous → it **cannot** produce discrete
+  clicks; ruled out.
+- "Worse at higher level" ⇒ a fixed-size **sample discontinuity** (inaudible
+  when quiet, a loud click when hot). Only two sources exist in this pipeline:
+  **input xruns** (ALSA capture overflow) or **ring-buffer drops** (encoder/
+  uplink can't keep up).
+- The previous revamp left a `logger.warning()` **inside the RT audio callback**
+  (journald I/O in the real-time thread) — itself an xrun source — and input
+  overflows were logged only at DEBUG (invisible).
+- **Webradio kept decoding+playing during a live stream** (`stream/start` never
+  stopped it) ⇒ two ffmpegs + full-duplex on the USB codec on a Pi 3B+ → a
+  textbook cause of periodic capture xruns whose audibility scales with level.
+
+Done in this pass:
+6. ✅ RT-callback hygiene: removed all logging from `_callback`; cheap counters
+   only. A non-RT watcher logs input xruns (timestamped, deduped).
+7. ✅ Observability: `last_overflow_at` in `/api/status`; the web UI log panel
+   now distinguishes **"input xrun"** vs **"buffer drop"** so a heard click maps
+   to a cause.
+8. ✅ Structural fix: webradio is gated off while streaming/monitoring
+   (idempotent), removing the 2nd ffmpeg + full-duplex contention.
+
+Remaining (next): if xruns persist with webradio gated, raise input resilience
+(larger/explicit `blocksize`, RT thread priority via `LimitRTPRIO` +
+`SCHED_FIFO`); make any unavoidable drop graceful (silence/crossfade vs raw
+splice); ramp gain; replace `tanh` with a proper look-ahead limiter.
 
 **Phase 3 — Harden weak uplink**
 9. Fast, race-free reconnect (clean mount release, jittered backoff, pinned-IP / local caching resolver).
