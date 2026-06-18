@@ -345,15 +345,24 @@ const DeviceSelector = {
       this.render();
     } catch (e) { Toast.show("Failed to load devices", "error"); }
   },
+  // Strip the index-dependent " (hw:C,D)" suffix so the stored name is a stable
+  // substring that still matches after a reboot/replug reindexes the card.
+  stableName(name) {
+    const s = String(name).replace(/\s*\(hw:[^)]*\)\s*$/i, "").replace(/[\s:-]+$/, "").trim();
+    return s || String(name);
+  },
   render() {
     const sel = document.getElementById("device-select");
     const current = AppState.config?.input?.alsa_device;
     const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
       .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     sel.innerHTML = AppState.devices.map(d => {
-      // current may be a name (new) or a legacy index (old configs).
-      const selected = (d.name === current || String(d.id) === String(current)) ? " selected" : "";
-      return "<option value='" + d.id + "'" + selected + ">" + esc(d.name) + "</option>";
+      // current may be a stable name substring (new), a full name, or a legacy
+      // index (old configs).
+      const match = d.name === current
+        || (typeof current === "string" && current && d.name.includes(current))
+        || String(d.id) === String(current);
+      return "<option value='" + d.id + "'" + (match ? " selected" : "") + ">" + esc(d.name) + "</option>";
     }).join("") || "<option>No devices</option>";
   },
   async select(deviceId) {
@@ -361,12 +370,13 @@ const DeviceSelector = {
       const device = (AppState.devices || []).find(d => String(d.id) === String(deviceId));
       if (!device) return;
       const channels = device.channels === 1 ? 1 : (AppState.config?.input?.channels || 2);
-      // Store the device NAME, not the index — sounddevice matches by name, so
-      // the selection survives index reshuffles on reboot / USB replug.
-      await API.patch("config", { input: { alsa_device: device.name, channels } });
+      // Store a STABLE name substring (sounddevice matches by name) so the
+      // selection survives index reshuffles on reboot / USB replug.
+      const name = this.stableName(device.name);
+      await API.patch("config", { input: { alsa_device: name, channels } });
       if (AppState.config) {
         if (!AppState.config.input) AppState.config.input = {};
-        AppState.config.input.alsa_device = device.name;
+        AppState.config.input.alsa_device = name;
         AppState.config.input.channels = channels;
       }
       Toast.show("Device applied", "success");
